@@ -1,0 +1,26 @@
+name: denial_grouped_launcher
+description: Denial application launcher with user-defined app groups and a right-click move menu, inspired by KDE's application launcher.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.13.0
+  flutter: 3.47.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dbus: ^0.7.14
+  denial_sdk: any
+  denial_flutter_sdk: any
+  flutter_riverpod: ^3.3.2
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+
+denial_plugin:
+  schema: 1
+  name: Grouped Launcher
+  provides:
+    - contract: package:denial_flutter_sdk/launcher.dart#ShellLauncher
+    - contract: package:denial_flutter_sdk/actions.dart#ShellAction
