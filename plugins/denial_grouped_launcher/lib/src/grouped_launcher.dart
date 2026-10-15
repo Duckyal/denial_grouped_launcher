@@ -4,8 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:dbus/dbus.dart';
-import 'package:denial_flutter_sdk/applications.dart'
-    show DesktopApp, screenPowerServiceProvider;
+import 'package:denial_flutter_sdk/applications.dart' show DesktopApp;
 import 'package:denial_flutter_sdk/environment.dart'
     show startupEnvironmentProvider;
 import 'package:denial_flutter_sdk/launcher.dart';
@@ -1184,11 +1183,13 @@ class _GroupedApplicationLauncherState
         label: strings.screenOff,
         icon: Icons.contrast_rounded,
         disabled: session.busy,
-        onTap: () => unawaited(
-          ref
-              .read(screenPowerServiceProvider)
-              .screenOff(reason: 'grouped-launcher-power-menu'),
-        ),
+        // Compositor-owned DPMS: the SDK's screen-power service writes to a
+        // powerd control socket that this host does not run, and swallows the
+        // failed connect. Any physical input wakes the outputs again.
+        onTap: () {
+          _closeMenu();
+          ref.read(denialBridgeProvider).requestDpmsOff();
+        },
       ),
       _MenuItemData.divider(),
       actionItem(
