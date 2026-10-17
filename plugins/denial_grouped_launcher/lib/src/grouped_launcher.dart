@@ -937,6 +937,7 @@ class _GroupedApplicationLauncherState
     final focus = _inputFocus;
     return _MenuCard(
       width: _menuWidth,
+      opacity: menu.mode == _MenuMode.power ? 1.0 : null,
       children: switch (menu.mode) {
         _MenuMode.tile => _tileMenuItems(menu, autoGroups, strings),
         _MenuMode.group => _groupMenuItems(menu, strings),
@@ -1089,6 +1090,8 @@ class _GroupedApplicationLauncherState
           label: strings.confirm,
           icon: Icons.check_rounded,
           destructive: _powerIsDestructive(pending),
+          dangerColor:
+              _powerIsDestructive(pending) ? const Color(0xFFEF5350) : null,
           onTap: () => unawaited(controller.confirm()),
         ),
         _MenuItemData.action(
@@ -1108,6 +1111,7 @@ class _GroupedApplicationLauncherState
           label: strings.confirm,
           icon: Icons.check_rounded,
           destructive: true,
+          dangerColor: const Color(0xFFEF5350),
           disabled: _powerBusy,
           checked: _powerBusy,
           onTap: () => unawaited(_performSystemAction(systemPending)),
@@ -1122,11 +1126,13 @@ class _GroupedApplicationLauncherState
     _MenuItemData systemItem(LogindAction action, String label, IconData icon) {
       final capability = _power?.capabilityFor(action);
       final enabled = !_powerBusy && (capability?.canRequest ?? true);
+      final destructive =
+          action == LogindAction.powerOff || action == LogindAction.reboot;
       return _MenuItemData.action(
         label: label,
         icon: icon,
-        destructive:
-            action == LogindAction.powerOff || action == LogindAction.reboot,
+        destructive: destructive,
+        dangerColor: destructive ? const Color(0xFFEF5350) : null,
         disabled: !enabled,
         onTap: enabled
             ? () => setState(() {
@@ -1147,6 +1153,8 @@ class _GroupedApplicationLauncherState
         label: _powerActionLabel(action, strings),
         icon: icon,
         destructive: _powerIsDestructive(action),
+        dangerColor:
+            _powerIsDestructive(action) ? const Color(0xFFEF5350) : null,
         disabled: !enabled,
         checked: session.busyAction == action,
         onTap: enabled ? onTap : null,

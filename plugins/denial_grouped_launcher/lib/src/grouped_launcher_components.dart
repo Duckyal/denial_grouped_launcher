@@ -920,6 +920,7 @@ class _MenuItemData {
     this.focusNode,
     this.hint = '',
     this.onSubmit,
+    this.dangerColor,
   });
 
   factory _MenuItemData.header(String label) =>
@@ -935,6 +936,7 @@ class _MenuItemData {
     bool destructive = false,
     bool disabled = false,
     VoidCallback? onTap,
+    Color? dangerColor,
   }) => _MenuItemData._(
     kind: _MenuItemKind.action,
     label: label,
@@ -943,6 +945,7 @@ class _MenuItemData {
     destructive: destructive,
     disabled: disabled,
     onTap: onTap,
+    dangerColor: dangerColor,
   );
 
   factory _MenuItemData.divider() =>
@@ -972,17 +975,23 @@ class _MenuItemData {
   final FocusNode? focusNode;
   final String hint;
   final VoidCallback? onSubmit;
+  final Color? dangerColor;
 }
 
 class _MenuCard extends StatelessWidget {
-  const _MenuCard({required this.width, required this.children});
+  const _MenuCard({required this.width, required this.children, this.opacity});
 
   final double width;
   final List<_MenuItemData> children;
+  final double? opacity;
 
   @override
   Widget build(BuildContext context) {
     final theme = ShellTheme.of(context);
+    final baseColor = theme.cardColor(context.shellColors.surfaceContainerHigh);
+    final color = opacity != null
+        ? baseColor.withValues(alpha: opacity)
+        : baseColor;
     return Semantics(
       container: true,
       explicitChildNodes: true,
@@ -992,7 +1001,7 @@ class _MenuCard extends StatelessWidget {
           width: width,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: theme.cardColor(context.shellColors.surfaceContainerHigh),
+              color: color,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: context.shellColors.hairline),
             ),
@@ -1138,6 +1147,17 @@ class _MenuActionRowState extends State<_MenuActionRow> {
     final item = widget.item;
     final danger = item.destructive;
     final disabled = item.disabled;
+    final dangerColor = item.dangerColor ?? context.shellColors.performanceBad;
+    final iconColor = disabled
+        ? context.shellColors.textTertiary
+        : danger
+        ? dangerColor
+        : context.shellColors.textSecondary;
+    final labelColor = disabled
+        ? context.shellColors.textTertiary
+        : danger
+        ? dangerColor
+        : context.shellColors.textPrimary;
     return Semantics(
       button: true,
       enabled: !disabled,
@@ -1157,8 +1177,12 @@ class _MenuActionRowState extends State<_MenuActionRow> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: _hovered && !disabled
-                  ? theme.cardColor(accent.container)
-                  : accent.container.withValues(alpha: 0),
+                  ? danger
+                      ? dangerColor.withValues(alpha: 0.12)
+                      : theme.cardColor(accent.container)
+                  : danger && !disabled
+                      ? dangerColor.withValues(alpha: 0.06)
+                      : accent.container.withValues(alpha: 0),
               borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
             ),
             child: Row(
@@ -1176,11 +1200,7 @@ class _MenuActionRowState extends State<_MenuActionRow> {
                       : Icon(
                           item.icon,
                           size: 15,
-                          color: disabled
-                              ? context.shellColors.textTertiary
-                              : danger
-                              ? context.shellColors.performanceBad
-                              : context.shellColors.textSecondary,
+                          color: iconColor,
                         ),
                 ),
                 const SizedBox(width: 8),
@@ -1191,11 +1211,7 @@ class _MenuActionRowState extends State<_MenuActionRow> {
                     overflow: TextOverflow.ellipsis,
                     style: context.shellTheme.text.base.copyWith(
                       fontSize: 13,
-                      color: disabled
-                          ? context.shellColors.textTertiary
-                          : danger
-                          ? context.shellColors.performanceBad
-                          : context.shellColors.textPrimary,
+                      color: labelColor,
                     ),
                   ),
                 ),
