@@ -821,7 +821,8 @@ class _AppGrid extends StatelessWidget {
   final ValueChanged<LauncherApplication> onTap;
   final void Function(String appId, Offset globalPosition) onSecondaryTap;
   final bool draggable;
-  final void Function(String draggedAppId, String targetAppId)? onReorder;
+  final void Function(String draggedAppId, String targetAppId, bool after)?
+  onReorder;
 
   @override
   Widget build(BuildContext context) {
@@ -883,36 +884,125 @@ class _AppGrid extends StatelessWidget {
       onSecondaryTap: (position) => onSecondaryTap(app.id, position),
     );
     if (!draggable || onReorder == null) return tile;
-    final extent = _GroupedApplicationLauncherState._tileExtent;
-    return DragTarget<String>(
+    return _DropSlotTile(
+      appId: app.id,
+      extent: _GroupedApplicationLauncherState._tileExtent,
+      onReorder: onReorder!,
+      tile: tile,
+    );
+  }
+}
+
+/// Payload carried by a tile drag so drop handlers know the source app.
+@immutable
+class _AppDrag {
+  const _AppDrag(this.appId);
+
+  final String appId;
+}
+
+enum _DropSide { none, before, after }
+
+/// A grid cell that tracks the live drag pointer and paints a vertical slot
+/// line on its leading or trailing edge, so the drop lands before or after
+/// this tile (a line on the trailing edge of the last tile reaches the end).
+class _DropSlotTile extends StatefulWidget {
+  const _DropSlotTile({
+    required this.appId,
+    required this.extent,
+    required this.onReorder,
+    required this.tile,
+  });
+
+  final String appId;
+  final double extent;
+  final void Function(String draggedAppId, String targetAppId, bool after)
+  onReorder;
+  final Widget tile;
+
+  @override
+  State<_DropSlotTile> createState() => _DropSlotTileState();
+}
+
+class _DropSlotTileState extends State<_DropSlotTile> {
+  _DropSide _side = _DropSide.none;
+  RenderBox? _box;
+
+  _DropSide _sideFor(Offset global) {
+    final box = _box;
+    if (box == null) return _DropSide.none;
+    final local = box.globalToLocal(global);
+    return local.dx > box.size.width / 2
+        ? _DropSide.after
+        : _DropSide.before;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accentPalette;
+    return DragTarget<_AppDrag>(
+      onMove: (details) {
+        final side = details.data.appId == widget.appId
+            ? _DropSide.none
+            : _sideFor(details.offset);
+        if (side != _side) setState(() => _side = side);
+      },
+      onLeave: (_) {
+        if (_side != _DropSide.none) setState(() => _side = _DropSide.none);
+      },
       onAcceptWithDetails: (details) {
-        final reorder = onReorder;
-        if (reorder != null) reorder(details.data, app.id);
+        final drag = details.data;
+        final after = _side == _DropSide.after;
+        if (_side != _DropSide.none) setState(() => _side = _DropSide.none);
+        if (drag.appId != widget.appId) {
+          widget.onReorder(drag.appId, widget.appId, after);
+        }
       },
       builder: (context, candidates, _) {
-        final hovering = candidates.isNotEmpty && candidates.first != app.id;
-        final source = Draggable<String>(
-          data: app.id,
+        final box = context.findRenderObject();
+        if (box is RenderBox) _box = box;
+        final source = Draggable<_AppDrag>(
+          data: _AppDrag(widget.appId),
           feedback: Material(
             color: Colors.transparent,
             child: SizedBox(
-              width: extent,
-              height: extent,
-              child: Opacity(opacity: 0.9, child: tile),
+              width: widget.extent,
+              height: widget.extent,
+              child: Opacity(opacity: 0.9, child: widget.tile),
             ),
           ),
-          childWhenDragging: Opacity(opacity: 0.3, child: tile),
-          child: tile,
+          childWhenDragging: Opacity(opacity: 0.3, child: widget.tile),
+          child: widget.tile,
         );
-        if (!hovering) return source;
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: ShellTheme.of(context).accentPalette.primary,
+        if (_side == _DropSide.none) return source;
+        final leading = _side == _DropSide.before;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            source,
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: leading ? 0 : 6,
+                    right: leading ? 6 : 0,
+                  ),
+                  child: Align(
+                    alignment: leading
+                        ? Alignment.centerLeft
+                        : Alignment.centerRight,
+                    child: Container(
+                      width: 3,
+                      decoration: BoxDecoration(
+                        color: accent.primary,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ),
-            borderRadius: context.shellTheme.borderRadius(18),
-          ),
-          child: source,
+          ],
         );
       },
     );

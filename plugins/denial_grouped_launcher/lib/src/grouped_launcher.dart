@@ -565,24 +565,25 @@ class _GroupedApplicationLauncherState
     _persist();
   }
 
-  /// Moves a dragged application into the slot currently occupied by
-  /// `targetAppId` within the selected group. Disabled in the "all" view and
-  /// while a search is active, where the grid is purely alphabetical.
-  void _reorderApp(String draggedAppId, String targetAppId) {
+  /// Moves a dragged application before or after `targetAppId` within the
+  /// selected group. Dropping on the last tile's trailing half reaches the
+  /// very end. Disabled in the "all" view, where the grid is alphabetical.
+  void _reorderApp(String draggedAppId, String targetAppId, bool after) {
     if (_selectedView == _allViewKey) return;
     if (draggedAppId == targetAppId) return;
     final current = _visibleApps(_sortedApps())
         .map((app) => app.id)
         .toList(growable: true);
     final from = current.indexOf(draggedAppId);
-    var to = current.indexOf(targetAppId);
+    final to = current.indexOf(targetAppId);
     if (from < 0 || to < 0) return;
     setState(() {
       current.removeAt(from);
-      // Mirrors ReorderableListView: dropping forward lands before the
-      // target once the dragged entry has been removed from the list.
-      if (from < to) to -= 1;
-      current.insert(to.clamp(0, current.length), draggedAppId);
+      // After removing the dragged entry, a forward drag shifts the target
+      // one slot left; `after` then places it on the target's far side.
+      var insert = to - (from < to ? 1 : 0) + (after ? 1 : 0);
+      insert = insert.clamp(0, current.length);
+      current.insert(insert, draggedAppId);
       final orders = Map<String, List<String>>.of(_data.appOrder)
         ..[_selectedView] = current;
       _data = _data.copyWith(appOrder: orders);
