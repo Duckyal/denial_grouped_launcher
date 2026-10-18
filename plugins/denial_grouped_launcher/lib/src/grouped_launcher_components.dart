@@ -70,6 +70,7 @@ class _Sidebar extends StatelessWidget {
     required this.onRenameGroup,
     required this.onAutoGroupContextMenu,
     required this.onAutoGroupRename,
+    required this.onReorderGroup,
   });
 
   final double width;
@@ -85,6 +86,7 @@ class _Sidebar extends StatelessWidget {
   final void Function(String groupId, Offset globalPosition)
   onAutoGroupContextMenu;
   final void Function(String groupId, Offset globalPosition) onAutoGroupRename;
+  final void Function(int oldIndex, int newIndex) onReorderGroup;
 
   @override
   Widget build(BuildContext context) {
@@ -94,6 +96,31 @@ class _Sidebar extends StatelessWidget {
         .applications
         .length;
     final groupedTotal = counts.values.fold<int>(0, (a, b) => a + b);
+    final userGroups = data.groups;
+    final byId = <String, _SidebarGroupEntry>{
+      for (final g in userGroups)
+        g.id: _SidebarGroupEntry(
+          id: g.id,
+          isAuto: false,
+          icon: Icons.folder_rounded,
+          label: g.name,
+          count: counts[g.id] ?? 0,
+        ),
+      for (final g in autoGroups)
+        g.id: _SidebarGroupEntry(
+          id: g.id,
+          isAuto: true,
+          icon: g.icon,
+          label: g.label,
+          count: counts[g.id] ?? 0,
+        ),
+    };
+    final allGroups = <_SidebarGroupEntry>[];
+    for (final id in data.groupOrder) {
+      final entry = byId.remove(id);
+      if (entry != null) allGroups.add(entry);
+    }
+    allGroups.addAll(byId.values);
     return SizedBox(
       width: width,
       child: Column(
@@ -112,39 +139,43 @@ class _Sidebar extends StatelessWidget {
                     selected: selectedView == _allViewKey,
                     onTap: () => onSelect(_allViewKey),
                   ),
-                  for (final group in data.groups)
-                    _SideEntry(
-                      key: ValueKey<String>(group.id),
-                      icon: Icons.folder_rounded,
-                      label: group.name,
-                      count: counts[group.id] ?? 0,
-                      selected: selectedView == group.id,
-                      onTap: () => onSelect(group.id),
-                      onSecondaryTap: (position) =>
-                          onGroupContextMenu(group.id, position),
-                      onEditTap: (position) =>
-                          onRenameGroup(group.id, position),
+                  if (allGroups.isNotEmpty) const _SidebarDivider(),
+                  if (allGroups.isNotEmpty)
+                    ReorderableListView(
+                      shrinkWrap: true,
+                      primary: false,
+                      physics: const NeverScrollableScrollPhysics(),
+                      buildDefaultDragHandles: false,
+                      proxyDecorator: (child, index, animation) => child,
+                      onReorderItem: onReorderGroup,
+                      children: [
+                        for (var i = 0; i < allGroups.length; i++)
+                          _SideEntry(
+                            key: ValueKey<String>(allGroups[i].id),
+                            icon: allGroups[i].icon,
+                            label: allGroups[i].label,
+                            count: allGroups[i].count,
+                            selected: selectedView == allGroups[i].id,
+                            reorderIndex: i,
+                            dragHandle: const Icon(Icons.drag_handle_rounded),
+                            onTap: () => onSelect(allGroups[i].id),
+                            onSecondaryTap: (position) => allGroups[i].isAuto
+                                ? onAutoGroupContextMenu(allGroups[i].id, position)
+                                : onGroupContextMenu(allGroups[i].id, position),
+                            onEditTap: (position) => allGroups[i].isAuto
+                                ? onAutoGroupRename(allGroups[i].id, position)
+                                : onRenameGroup(allGroups[i].id, position),
+                          ),
+                      ],
                     ),
-                  if (autoGroups.isNotEmpty) const _SidebarDivider(),
-                  for (final group in autoGroups)
+                  if (ungroupedTotal - groupedTotal > 0)
                     _SideEntry(
-                      icon: group.icon,
-                      label: group.label,
-                      count: counts[group.id] ?? 0,
-                      selected: selectedView == group.id,
-                      onTap: () => onSelect(group.id),
-                      onSecondaryTap: (position) =>
-                          onAutoGroupContextMenu(group.id, position),
-                      onEditTap: (position) =>
-                          onAutoGroupRename(group.id, position),
+                      icon: Icons.category_rounded,
+                      label: strings.ungrouped,
+                      count: ungroupedTotal - groupedTotal,
+                      selected: selectedView == _ungroupedViewKey,
+                      onTap: () => onSelect(_ungroupedViewKey),
                     ),
-                  _SideEntry(
-                    icon: Icons.category_rounded,
-                    label: strings.ungrouped,
-                    count: ungroupedTotal - groupedTotal,
-                    selected: selectedView == _ungroupedViewKey,
-                    onTap: () => onSelect(_ungroupedViewKey),
-                  ),
                 ],
               ),
             ),
@@ -165,6 +196,21 @@ class _Sidebar extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SidebarGroupEntry {
+  const _SidebarGroupEntry({
+    required this.id,
+    required this.isAuto,
+    required this.icon,
+    required this.label,
+    required this.count,
+  });
+  final String id;
+  final bool isAuto;
+  final IconData icon;
+  final String label;
+  final int count;
 }
 
 class _SidebarDivider extends StatelessWidget {
@@ -191,6 +237,8 @@ class _SideEntry extends StatefulWidget {
     this.onTapPositioned,
     this.onSecondaryTap,
     this.onEditTap,
+    this.dragHandle,
+    this.reorderIndex,
   });
 
   final IconData icon;
@@ -201,6 +249,8 @@ class _SideEntry extends StatefulWidget {
   final ValueChanged<Offset>? onTapPositioned;
   final ValueChanged<Offset>? onSecondaryTap;
   final ValueChanged<Offset>? onEditTap;
+  final Widget? dragHandle;
+  final int? reorderIndex;
 
   @override
   State<_SideEntry> createState() => _SideEntryState();
@@ -245,6 +295,24 @@ class _SideEntryState extends State<_SideEntry> {
             ),
             child: Row(
               children: [
+                if (widget.dragHandle != null &&
+                    widget.reorderIndex != null &&
+                    (_hovered || widget.selected))
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: ReorderableDragStartListener(
+                      index: widget.reorderIndex!,
+                      child: IconTheme(
+                        data: IconThemeData(
+                          size: 14,
+                          color: widget.selected
+                              ? accent.onContainer
+                              : context.shellColors.textTertiary,
+                        ),
+                        child: widget.dragHandle!,
+                      ),
+                    ),
+                  ),
                 Icon(
                   widget.icon,
                   size: 17,
@@ -739,6 +807,8 @@ class _AppGrid extends StatelessWidget {
     required this.selectedIndex,
     required this.onTap,
     required this.onSecondaryTap,
+    this.draggable = false,
+    this.onReorder,
   });
 
   final ScrollController controller;
@@ -750,6 +820,8 @@ class _AppGrid extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<LauncherApplication> onTap;
   final void Function(String appId, Offset globalPosition) onSecondaryTap;
+  final bool draggable;
+  final void Function(String draggedAppId, String targetAppId)? onReorder;
 
   @override
   Widget build(BuildContext context) {
@@ -796,15 +868,51 @@ class _AppGrid extends StatelessWidget {
         mainAxisSpacing: _GroupedApplicationLauncherState._tileSpacing,
       ),
       itemCount: apps.length,
-      itemBuilder: (context, index) {
-        final app = apps[index];
-        return _AppTile(
-          key: ValueKey<String>('app-${app.id}'),
-          app: app,
-          selected: index == selectedIndex,
-          compact: false,
-          onTap: () => onTap(app),
-          onSecondaryTap: (position) => onSecondaryTap(app.id, position),
+      itemBuilder: (context, index) => _tile(context, index),
+    );
+  }
+
+  Widget _tile(BuildContext context, int index) {
+    final app = apps[index];
+    final tile = _AppTile(
+      key: ValueKey<String>('app-${app.id}'),
+      app: app,
+      selected: index == selectedIndex,
+      compact: false,
+      onTap: () => onTap(app),
+      onSecondaryTap: (position) => onSecondaryTap(app.id, position),
+    );
+    if (!draggable || onReorder == null) return tile;
+    final extent = _GroupedApplicationLauncherState._tileExtent;
+    return DragTarget<String>(
+      onAcceptWithDetails: (details) {
+        final reorder = onReorder;
+        if (reorder != null) reorder(details.data, app.id);
+      },
+      builder: (context, candidates, _) {
+        final hovering = candidates.isNotEmpty && candidates.first != app.id;
+        final source = Draggable<String>(
+          data: app.id,
+          feedback: Material(
+            color: Colors.transparent,
+            child: SizedBox(
+              width: extent,
+              height: extent,
+              child: Opacity(opacity: 0.9, child: tile),
+            ),
+          ),
+          childWhenDragging: Opacity(opacity: 0.3, child: tile),
+          child: tile,
+        );
+        if (!hovering) return source;
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: ShellTheme.of(context).accentPalette.primary,
+            ),
+            borderRadius: context.shellTheme.borderRadius(18),
+          ),
+          child: source,
         );
       },
     );

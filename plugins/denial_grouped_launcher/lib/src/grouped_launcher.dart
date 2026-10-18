@@ -352,13 +352,38 @@ class _GroupedApplicationLauncherState
     }
     if (_selectedView == _allViewKey) return all;
     if (_selectedView == _ungroupedViewKey) {
-      return all
-          .where((app) => _effectiveGroup(app.id) == null)
-          .toList(growable: false);
+      return _applyAppOrder(
+        all
+            .where((app) => _effectiveGroup(app.id) == null)
+            .toList(growable: false),
+      );
     }
-    return all
-        .where((app) => _effectiveGroup(app.id) == _selectedView)
-        .toList(growable: false);
+    return _applyAppOrder(
+      all
+          .where((app) => _effectiveGroup(app.id) == _selectedView)
+          .toList(growable: false),
+    );
+  }
+
+  /// Reorders a group's applications by the user's persisted drag order.
+  /// Apps absent from the stored list keep their alphabetical position at
+  /// the end, so newly installed applications are never hidden.
+  List<LauncherApplication> _applyAppOrder(List<LauncherApplication> apps) {
+    final order = _data.appOrder[_selectedView];
+    if (order == null || order.isEmpty || apps.length < 2) return apps;
+    final byId = <String, LauncherApplication>{
+      for (final app in apps) app.id: app,
+    };
+    final result = <LauncherApplication>[];
+    for (final id in order) {
+      final app = byId.remove(id);
+      if (app != null) result.add(app);
+    }
+    // `apps` is already alphabetical; the leftovers keep that order.
+    for (final app in apps) {
+      if (byId.containsKey(app.id)) result.add(app);
+    }
+    return result;
   }
 
   List<LauncherApplication> _suggestedApps(
@@ -391,7 +416,7 @@ class _GroupedApplicationLauncherState
   }
 
   List<_AutoGroupView> _autoGroupViews(Map<String, int> counts, bool zh) {
-    return <_AutoGroupView>[
+    final present = <_AutoGroupView>[
       for (final group in _categoryGroups)
         if ((counts[group.id] ?? 0) > 0)
           _AutoGroupView(
@@ -400,6 +425,18 @@ class _GroupedApplicationLauncherState
             icon: group.icon,
           ),
     ];
+    final order = _data.groupOrder;
+    if (order.isEmpty) return present;
+    final byId = {for (final v in present) v.id: v};
+    final result = <_AutoGroupView>[];
+    for (final id in order) {
+      if (id.startsWith(_autoGroupPrefix)) {
+        final view = byId.remove(id);
+        if (view != null) result.add(view);
+      }
+    }
+    result.addAll(byId.values);
+    return result;
   }
 
   /// Display label of a desktop-entry category, honoring the user's rename.
@@ -500,6 +537,56 @@ class _GroupedApplicationLauncherState
       _data = next;
     });
     _closeMenu();
+    _persist();
+  }
+
+  void _reorderGroup(int oldIndex, int newIndex, Map<String, int> counts) {
+    if (oldIndex == newIndex) return;
+    final present = <String>{
+      for (final g in _data.groups) g.id,
+      for (final g in _autoGroupViews(counts, false)) g.id,
+    };
+    final order = <String>[];
+    for (final id in _data.groupOrder) {
+      if (present.remove(id)) order.add(id);
+    }
+    order.addAll(present);
+    if (oldIndex < 0 ||
+        oldIndex >= order.length ||
+        newIndex < 0 ||
+        newIndex > order.length) {
+      return;
+    }
+    setState(() {
+      final item = order.removeAt(oldIndex);
+      order.insert(newIndex.clamp(0, order.length), item);
+      _data = _data.copyWith(groupOrder: order);
+    });
+    _persist();
+  }
+
+  /// Moves a dragged application into the slot currently occupied by
+  /// `targetAppId` within the selected group. Disabled in the "all" view and
+  /// while a search is active, where the grid is purely alphabetical.
+  void _reorderApp(String draggedAppId, String targetAppId) {
+    if (_selectedView == _allViewKey) return;
+    if (draggedAppId == targetAppId) return;
+    final current = _visibleApps(_sortedApps())
+        .map((app) => app.id)
+        .toList(growable: true);
+    final from = current.indexOf(draggedAppId);
+    var to = current.indexOf(targetAppId);
+    if (from < 0 || to < 0) return;
+    setState(() {
+      current.removeAt(from);
+      // Mirrors ReorderableListView: dropping forward lands before the
+      // target once the dragged entry has been removed from the list.
+      if (from < to) to -= 1;
+      current.insert(to.clamp(0, current.length), draggedAppId);
+      final orders = Map<String, List<String>>.of(_data.appOrder)
+        ..[_selectedView] = current;
+      _data = _data.copyWith(appOrder: orders);
+    });
     _persist();
   }
 
@@ -816,6 +903,8 @@ class _GroupedApplicationLauncherState
                                             groupId: groupId,
                                           ),
                                         ),
+                                    onReorderGroup: (oldIndex, newIndex) =>
+                                        _reorderGroup(oldIndex, newIndex, counts),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
@@ -877,6 +966,9 @@ class _GroupedApplicationLauncherState
                                                   : strings.emptyGroup,
                                               showSearchEmptyIcon: queryActive,
                                               selectedIndex: _selectedIndex,
+                                              draggable:
+                                                  _selectedView != _allViewKey,
+                                              onReorder: _reorderApp,
                                               onTap: _launch,
                                               onSecondaryTap: _openTileMenu,
                                             ),

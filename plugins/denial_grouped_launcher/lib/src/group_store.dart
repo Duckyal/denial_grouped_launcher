@@ -30,6 +30,8 @@ class GroupedLauncherData {
     required this.lastUsedGroup,
     this.execOverrides = const <String, String>{},
     this.autoNames = const <String, String>{},
+    this.groupOrder = const <String>[],
+    this.appOrder = const <String, List<String>>{},
   });
 
   GroupedLauncherData.empty()
@@ -37,7 +39,9 @@ class GroupedLauncherData {
       assignments = const <String, String>{},
       lastUsedGroup = '',
       execOverrides = const <String, String>{},
-      autoNames = const <String, String>{};
+      autoNames = const <String, String>{},
+      groupOrder = const <String>[],
+      appOrder = const <String, List<String>>{};
 
   final List<LauncherGroup> groups;
 
@@ -53,12 +57,21 @@ class GroupedLauncherData {
   /// Auto category group id ('auto:…') -> user-renamed display label.
   final Map<String, String> autoNames;
 
+  /// Unified ordering for all groups (user + auto). Missing entries append at end.
+  final List<String> groupOrder;
+
+  /// Group id -> ordered application ids. Apps absent from the list append
+  /// at the end in their default (alphabetical) order.
+  final Map<String, List<String>> appOrder;
+
   GroupedLauncherData copyWith({
     List<LauncherGroup>? groups,
     Map<String, String>? assignments,
     String? lastUsedGroup,
     Map<String, String>? execOverrides,
     Map<String, String>? autoNames,
+    List<String>? groupOrder,
+    Map<String, List<String>>? appOrder,
   }) {
     return GroupedLauncherData(
       groups: groups ?? this.groups,
@@ -66,6 +79,8 @@ class GroupedLauncherData {
       lastUsedGroup: lastUsedGroup ?? this.lastUsedGroup,
       execOverrides: execOverrides ?? this.execOverrides,
       autoNames: autoNames ?? this.autoNames,
+      groupOrder: groupOrder ?? this.groupOrder,
+      appOrder: appOrder ?? this.appOrder,
     );
   }
 }
@@ -189,6 +204,35 @@ class GroupedLauncherStore {
           }
         });
       }
+      final groupOrder = <String>[];
+      final rawGroupOrder = value['groupOrder'];
+      if (rawGroupOrder is List) {
+        for (final entry in rawGroupOrder) {
+          if (entry is String &&
+              (entry.startsWith('auto:') && _isKnownAutoGroupId(entry)) ||
+              (!entry.startsWith('auto:') && entry.isNotEmpty)) {
+            groupOrder.add(entry);
+          }
+        }
+      }
+      final appOrder = <String, List<String>>{};
+      final rawAppOrder = value['appOrder'];
+      if (rawAppOrder is Map) {
+        rawAppOrder.forEach((key, order) {
+          if (key is! String || key.isEmpty || order is! List) return;
+          final ids = <String>[];
+          final seenIds = <String>{};
+          for (final entry in order) {
+            if (entry is String &&
+                entry.isNotEmpty &&
+                entry.runes.length <= 512 &&
+                seenIds.add(entry)) {
+              ids.add(entry);
+            }
+          }
+          if (ids.isNotEmpty) appOrder[key] = ids;
+        });
+      }
       return GroupedLauncherData(
         groups: groups,
         assignments: assignments,
@@ -199,6 +243,8 @@ class GroupedLauncherStore {
             : '',
         execOverrides: execOverrides,
         autoNames: autoNames,
+        groupOrder: groupOrder,
+        appOrder: appOrder,
       );
     } on FormatException {
       return GroupedLauncherData.empty();
@@ -223,6 +269,8 @@ class GroupedLauncherStore {
             'lastUsedGroup': data.lastUsedGroup,
             'execOverrides': data.execOverrides,
             'autoNames': data.autoNames,
+            'groupOrder': data.groupOrder,
+            'appOrder': data.appOrder,
           }),
           flush: true,
         );
