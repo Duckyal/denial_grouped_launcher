@@ -78,3 +78,34 @@ final class OpenGroupedApplicationsAction implements ShellAction {
   @override
   void invoke(ShellActionContext context) => context.services.toggleLauncher();
 }
+
+/// Keeps the compositor's hard-coded bare-Super launcher key working.
+///
+/// The native shortcut path (deniald
+/// `wayland_frontend::input::execute_shortcut_disposition_at`) routes a bare
+/// Super press to the built-in launcher's action id
+/// `denial_launcher.openApplications`, but only when that id is present in the
+/// published plugin-action catalog (`ShortcutEngine::target_available`);
+/// otherwise the invocation is dropped. A bare "Super" entry cannot be written
+/// into `shortcuts.json` (the parser rejects modifier-only shortcuts), so the
+/// only way a launcher replacement gets Super back is to answer under the same
+/// stable id. This plugin already replaces the built-in launcher (both provide
+/// `ShellLauncher`, zero-or-one, so they are never active together), which
+/// makes this id free to claim.
+@Provides(ShellAction)
+final class OpenBuiltinNamedApplicationsAction implements ShellAction {
+  const OpenBuiltinNamedApplicationsAction();
+  @override
+  String get id => 'denial_launcher.openApplications';
+  @override
+  String get provider => 'Grouped Launcher';
+  @override
+  String label(BuildContext context) =>
+      Localizations.localeOf(context).languageCode == 'zh'
+      ? '打开应用列表（分组，Super 兼容）'
+      : 'Open applications (grouped, Super compatibility)';
+  @override
+  String description(BuildContext context) => '';
+  @override
+  void invoke(ShellActionContext context) => context.services.toggleLauncher();
+}
