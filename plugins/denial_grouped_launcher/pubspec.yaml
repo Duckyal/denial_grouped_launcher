@@ -24,4 +24,3 @@ denial_plugin:
   provides:
     - contract: package:denial_flutter_sdk/launcher.dart#ShellLauncher
     - contract: package:denial_flutter_sdk/actions.dart#ShellAction
-      count: 2

@@ -11,7 +11,7 @@ KDE 风格分组应用启动器，替代 Denial 内置 App Launcher（两者都�
 - 右键 desktop 应用：编辑/恢复启动命令
 - 搜索跨全部分组；当前分组在关闭后记忆
 - 分组数据存于 `$XDG_CONFIG_HOME/denial/grouped-launcher.json`，插件独立维护，不依赖合成器改动
-- Super 键（裸按）默认打开本启动器：插件额外注册了一个 id 为 `denial_launcher.openApplications` 的 ShellAction。合成器（deniald Rust 侧 `wayland_frontend::input`）把裸 Super 硬编码路由到这个内置 id，且要求该 id 出现在发布的动作目录里才派发；`shortcuts.json` 无法声明 modifier-only 的 "Super"，所以必须复用同一 id。两个插件都提供 `ShellLauncher`（zeroOrOne）不会同时启用，此 id 不会被占用
+- Super 键（裸按）默认打开本启动器：插件直接沿用内置启动器的动作 id `denial_launcher.openApplications`。合成器（deniald Rust 侧 `wayland_frontend::input`）把裸 Super 硬编码路由到这个 id，且要求该 id 出现在发布的动作目录里才派发；`shortcuts.json` 无法声明 modifier-only 的 "Super"，所以必须复用同一 id。两个插件都提供 `ShellLauncher`（zeroOrOne）不会同时启用，此 id 不会被占用。对外只暴露这一个"打开应用列表（分组）"入口
 - 关机/重启/休眠/挂起由插件直连 `org.freedesktop.login1` 逐个 verb 读取，不受 SDK 会话电源快照影响；锁定/注销仍走 `sessionPowerProvider`，熄屏走 `screenPowerServiceProvider`
 
 ## 安装

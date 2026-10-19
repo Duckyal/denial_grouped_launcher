@@ -61,40 +61,19 @@ final class _DesktopCatalogScope extends ConsumerWidget {
 }
 
 /// The launcher supplies the action; Rust only routes its stable identity.
+///
+/// The id intentionally reuses the built-in launcher's stable action id:
+/// deniald's native shortcut path (`wayland_frontend::input`) hard-codes a
+/// bare-Super tap to `denial_launcher.openApplications`, and only dispatches
+/// it when that id exists in the published plugin-action catalog
+/// (`ShortcutEngine::target_available`). A bare "Super" cannot be declared in
+/// `shortcuts.json` (the parser rejects modifier-only shortcuts), so claiming
+/// the same id is the only way a launcher replacement keeps Super working.
+/// This plugin replaces the built-in launcher (both provide `ShellLauncher`,
+/// zero-or-one, never active together), so the id is always free to claim.
 @Provides(ShellAction)
 final class OpenGroupedApplicationsAction implements ShellAction {
   const OpenGroupedApplicationsAction();
-  @override
-  String get id => 'denial_grouped_launcher.openApplications';
-  @override
-  String get provider => 'Grouped Launcher';
-  @override
-  String label(BuildContext context) =>
-      Localizations.localeOf(context).languageCode == 'zh'
-      ? '打开应用列表（分组）'
-      : 'Open applications (grouped)';
-  @override
-  String description(BuildContext context) => '';
-  @override
-  void invoke(ShellActionContext context) => context.services.toggleLauncher();
-}
-
-/// Keeps the compositor's hard-coded bare-Super launcher key working.
-///
-/// The native shortcut path (deniald
-/// `wayland_frontend::input::execute_shortcut_disposition_at`) routes a bare
-/// Super press to the built-in launcher's action id
-/// `denial_launcher.openApplications`, but only when that id is present in the
-/// published plugin-action catalog (`ShortcutEngine::target_available`);
-/// otherwise the invocation is dropped. A bare "Super" entry cannot be written
-/// into `shortcuts.json` (the parser rejects modifier-only shortcuts), so the
-/// only way a launcher replacement gets Super back is to answer under the same
-/// stable id. This plugin already replaces the built-in launcher (both provide
-/// `ShellLauncher`, zero-or-one, so they are never active together), which
-/// makes this id free to claim.
-@Provides(ShellAction)
-final class OpenBuiltinNamedApplicationsAction implements ShellAction {
-  const OpenBuiltinNamedApplicationsAction();
   @override
   String get id => 'denial_launcher.openApplications';
   @override
@@ -102,8 +81,8 @@ final class OpenBuiltinNamedApplicationsAction implements ShellAction {
   @override
   String label(BuildContext context) =>
       Localizations.localeOf(context).languageCode == 'zh'
-      ? '打开应用列表（分组，Super 兼容）'
-      : 'Open applications (grouped, Super compatibility)';
+      ? '打开应用列表（分组）'
+      : 'Open applications (grouped)';
   @override
   String description(BuildContext context) => '';
   @override
