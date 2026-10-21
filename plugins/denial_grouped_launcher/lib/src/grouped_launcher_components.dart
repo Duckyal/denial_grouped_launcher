@@ -52,6 +52,16 @@ class _Strings {
   String get powerFailed => zh ? '此操作当前无法执行' : 'This action could not run';
   String get userFallback => zh ? '用户' : 'User';
   String powerConfirm(String action) => zh ? '确认$action吗？' : 'Confirm $action?';
+  String get hiddenApps => zh ? '已移除' : 'Removed';
+  String get confirmRemove => zh ? '再次点击确认移除' : 'Tap again to confirm';
+  String get restoreApp => zh ? '恢复到启动器' : 'Restore to launcher';
+  String get hiddenHint =>
+      zh ? '此分组暂无应用' : 'No removed apps';
+  /// [deletesFile] distinguishes a real desktop-entry delete (user-owned
+  /// entry) from hiding a system-wide entry that only this launcher hides.
+  String removeApp(bool deletesFile) => deletesFile
+      ? (zh ? '移除并删除 desktop 文件' : 'Remove and delete entry')
+      : (zh ? '从启动器移除' : 'Remove from launcher');
 }
 
 // --- Sidebar -----------------------------------------------------------
@@ -64,6 +74,8 @@ class _Sidebar extends StatelessWidget {
     required this.counts,
     required this.autoGroups,
     required this.strings,
+    required this.visibleAllCount,
+    required this.hiddenCount,
     required this.onSelect,
     required this.onNewGroup,
     required this.onGroupContextMenu,
@@ -79,6 +91,12 @@ class _Sidebar extends StatelessWidget {
   final Map<String, int> counts;
   final List<_AutoGroupView> autoGroups;
   final _Strings strings;
+
+  /// Apps shown in "All" (the catalog minus locally hidden entries).
+  final int visibleAllCount;
+
+  /// Entries the user removed; > 0 reveals the "Removed" view.
+  final int hiddenCount;
   final ValueChanged<String> onSelect;
   final ValueChanged<Offset> onNewGroup;
   final void Function(String groupId, Offset globalPosition) onGroupContextMenu;
@@ -90,11 +108,6 @@ class _Sidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ungroupedTotal = context
-        .dependOnInheritedWidgetOfExactType<_LauncherScope>()!
-        .launcher
-        .applications
-        .length;
     final groupedTotal = counts.values.fold<int>(0, (a, b) => a + b);
     final userGroups = data.groups;
     final byId = <String, _SidebarGroupEntry>{
@@ -168,13 +181,21 @@ class _Sidebar extends StatelessWidget {
                           ),
                       ],
                     ),
-                  if (ungroupedTotal - groupedTotal > 0)
+                  if (visibleAllCount - groupedTotal > 0)
                     _SideEntry(
                       icon: Icons.category_rounded,
                       label: strings.ungrouped,
-                      count: ungroupedTotal - groupedTotal,
+                      count: visibleAllCount - groupedTotal,
                       selected: selectedView == _ungroupedViewKey,
                       onTap: () => onSelect(_ungroupedViewKey),
+                    ),
+                  if (hiddenCount > 0)
+                    _SideEntry(
+                      icon: Icons.visibility_off_rounded,
+                      label: strings.hiddenApps,
+                      count: hiddenCount,
+                      selected: selectedView == _hiddenViewKey,
+                      onTap: () => onSelect(_hiddenViewKey),
                     ),
                 ],
               ),

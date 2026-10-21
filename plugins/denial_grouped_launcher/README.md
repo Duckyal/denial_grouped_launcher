@@ -9,6 +9,7 @@ KDE 风格分组应用启动器，替代 Denial 内置 App Launcher（两者都�
 - 右键应用磁贴：移动到分组、移出分组、新建分组并移入
 - 右键分组名：重命名、删除（删除只解除归属，不删应用）
 - 右键 desktop 应用：编辑/恢复启动命令
+- 右键应用磁贴"从启动器移除"（二次点击确认）：用户目录（`~/.local/share/applications`）下的 desktop 文件直接删除（宿主监听该目录，重扫后自动消失）；系统目录条目无权删除，仅本地隐藏并记入 `hiddenApps`。有隐藏项时侧栏出现"已移除"视图，右键其磁贴可恢复。适合清理已卸载软件残留的失效图标
 - 搜索跨全部分组；当前分组在关闭后记忆
 - 分组数据存于 `$XDG_CONFIG_HOME/denial/grouped-launcher.json`，插件独立维护，不依赖合成器改动
 - Super 键（裸按）默认打开本启动器：插件直接沿用内置启动器的动作 id `denial_launcher.openApplications`。合成器（deniald Rust 侧 `wayland_frontend::input`）把裸 Super 硬编码路由到这个 id，且要求该 id 出现在发布的动作目录里才派发；`shortcuts.json` 无法声明 modifier-only 的 "Super"，所以必须复用同一 id。两个插件都提供 `ShellLauncher`（zeroOrOne）不会同时启用，此 id 不会被占用。对外只暴露这一个"打开应用列表（分组）"入口

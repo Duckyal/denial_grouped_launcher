@@ -29,6 +29,7 @@ part 'power_backend.dart';
 
 const _allViewKey = '';
 const _ungroupedViewKey = '\u0000ungrouped';
+const _hiddenViewKey = '\u0000hidden';
 
 class GroupedApplicationLauncher extends ConsumerStatefulWidget {
   const GroupedApplicationLauncher({
@@ -112,6 +113,10 @@ class _GroupedApplicationLauncherState
   _MenuState? _menu;
   TextEditingController? _inputController;
   FocusNode? _inputFocus;
+
+  /// Application awaiting the second-click confirmation in the tile menu's
+  /// "remove from launcher" step. Reset whenever the menu closes.
+  String? _pendingRemoveAppId;
 
   /// logind verbs the launcher runs itself, so one unsupported verb cannot
   /// disable the whole power menu. Created on first use to keep the D-Bus
@@ -291,7 +296,10 @@ class _GroupedApplicationLauncherState
       _selectedView = viewKey;
       _selectedIndex = -1;
       _data = _data.copyWith(
-        lastUsedGroup: viewKey == _ungroupedViewKey ? '' : viewKey,
+        lastUsedGroup:
+            viewKey == _ungroupedViewKey || viewKey == _hiddenViewKey
+            ? ''
+            : viewKey,
       );
     });
     _resetGridScroll();
@@ -622,6 +630,81 @@ class _GroupedApplicationLauncherState
     _persist();
   }
 
+  // --- Remove from launcher --------------------------------------------
+
+  /// Whether removing [appId] can also delete its desktop entry. Only files
+  /// under the user's own `$XDG_DATA_HOME/applications` (or `~/.local/share`)
+  /// are deleted; system-wide entries are read-only for a normal user and are
+  /// hidden locally instead.
+  bool _isUserOwnedDesktopEntry(String desktopPath) {
+    final environment = ref.read(startupEnvironmentProvider);
+    final dataHome = environment['XDG_DATA_HOME']?.trim();
+    final home = environment['HOME']?.trim();
+    final roots = <String>[
+      if (dataHome != null && dataHome.startsWith('/'))
+        '${dataHome.replaceAll(RegExp(r'/+$'), '')}/applications',
+      if (home != null && home.startsWith('/'))
+        '${home.replaceAll(RegExp(r'/+$'), '')}/.local/share/applications',
+    ];
+    return roots.any((root) => desktopPath.startsWith('$root/'));
+  }
+
+  /// First tap arms the confirmation; the menu then shows "confirm remove".
+  void _requestRemoveApp(String appId) {
+    if (_pendingRemoveAppId == appId) {
+      unawaited(_removeApp(appId));
+      return;
+    }
+    setState(() => _pendingRemoveAppId = appId);
+  }
+
+  Future<void> _removeApp(String appId) async {
+    final desktopApp = widget.desktopAppsById[appId];
+    final desktopPath = desktopApp?.desktopPath;
+    var deletedOnDisk = false;
+    if (desktopPath != null && _isUserOwnedDesktopEntry(desktopPath)) {
+      try {
+        final file = File(desktopPath);
+        if (await file.exists()) {
+          await file.delete();
+          // The host watches this directory and re-scans; the entry is gone
+          // from the catalog on its own, so no local hide is needed.
+          deletedOnDisk = true;
+        }
+      } on Object {
+        // A failed delete (permissions, race with a package manager) must not
+        // break the launcher; fall through to the local hide so the tile
+        // still disappears from this user's view.
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      final hidden = Set<String>.of(_data.hiddenApps);
+      final assignments = Map<String, String>.of(_data.assignments)
+        ..remove(appId);
+      final overrides = Map<String, String>.of(_data.execOverrides)
+        ..remove(appId);
+      if (!deletedOnDisk) hidden.add(appId);
+      _data = _data.copyWith(
+        hiddenApps: hidden,
+        assignments: assignments,
+        execOverrides: overrides,
+      );
+      _pendingRemoveAppId = null;
+      _menu = null;
+    });
+    _persist();
+  }
+
+  void _restoreApp(String appId) {
+    setState(() {
+      final hidden = Set<String>.of(_data.hiddenApps)..remove(appId);
+      _data = _data.copyWith(hiddenApps: hidden);
+      _menu = null;
+    });
+    _persist();
+  }
+
   // --- Context menu ----------------------------------------------------
 
   void _openMenu(_MenuState menu) {
@@ -728,14 +811,17 @@ class _GroupedApplicationLauncherState
     if (menu.mode == _MenuMode.autoGroup) return 46 + 2 * 34 + 12;
     if (menu.mode == _MenuMode.power) return 46 + 7 * 34 + 3 * 11 + 24;
     if (menu.mode != _MenuMode.tile) return 140;
+    if (_selectedView == _hiddenViewKey) return 46 + 34 + 8;
     final desktopApp = widget.desktopAppsById[menu.appId];
     final overrideItems = desktopApp == null
         ? 0
         : 11 + 34 + (_data.execOverrides[menu.appId!] != null ? 34 : 0);
+    // The trailing "remove" divider + item, present in every tile menu.
     return (46 +
             (_data.groups.length + autoGroupCount + 2) * 34 +
             44 +
-            overrideItems)
+            overrideItems +
+            45)
         .toDouble();
   }
 
@@ -749,6 +835,7 @@ class _GroupedApplicationLauncherState
   void _closeMenuInternal() {
     _disposeMenuInput();
     _menu = null;
+    _pendingRemoveAppId = null;
   }
 
   void _closeMenu() {
@@ -777,11 +864,22 @@ class _GroupedApplicationLauncherState
     );
     final theme = ShellTheme.of(context);
     final session = ref.watch(sessionPowerProvider);
-    final allApps = _sortedApps();
+    final catalogApps = _sortedApps();
+    final hiddenIds = _data.hiddenApps;
+    final allApps = hiddenIds.isEmpty
+        ? catalogApps
+        : catalogApps
+              .where((app) => !hiddenIds.contains(app.id))
+              .toList(growable: false);
+    final hiddenCount = catalogApps.length - allApps.length;
     final counts = _groupCounts(allApps);
     final autoGroups = _autoGroupViews(counts, strings.zh);
     final queryActive = _lastSearchText.trim().isNotEmpty;
-    final apps = _visibleApps(allApps);
+    final apps = _selectedView == _hiddenViewKey
+        ? catalogApps
+              .where((app) => hiddenIds.contains(app.id))
+              .toList(growable: false)
+        : _visibleApps(allApps);
     final suggestedApps = _suggestedApps(allApps, queryActive);
     if (_selectedIndex >= apps.length) {
       _selectedIndex = apps.isEmpty ? -1 : apps.length - 1;
@@ -865,6 +963,8 @@ class _GroupedApplicationLauncherState
                                     counts: counts,
                                     autoGroups: autoGroups,
                                     strings: strings,
+                                    visibleAllCount: allApps.length,
+                                    hiddenCount: hiddenCount,
                                     onSelect: _selectView,
                                     onNewGroup: (globalPosition) => _openMenu(
                                       _MenuState(
@@ -962,13 +1062,19 @@ class _GroupedApplicationLauncherState
                                                       .isEmpty,
                                               loadingLabel:
                                                   l10n.loadingApplications,
-                                              emptyLabel: queryActive
+                                              emptyLabel: _selectedView ==
+                                                      _hiddenViewKey
+                                                  ? strings.hiddenHint
+                                                  : queryActive
                                                   ? l10n.noApplicationsFound
                                                   : strings.emptyGroup,
                                               showSearchEmptyIcon: queryActive,
                                               selectedIndex: _selectedIndex,
                                               draggable:
-                                                  _selectedView != _allViewKey,
+                                                  _selectedView !=
+                                                      _allViewKey &&
+                                                  _selectedView !=
+                                                      _hiddenViewKey,
                                               onReorder: _reorderApp,
                                               onTap: _launch,
                                               onSecondaryTap: _openTileMenu,
@@ -1063,6 +1169,18 @@ class _GroupedApplicationLauncherState
       app = found;
     }
     if (app == null) return <_MenuItemData>[];
+    if (_selectedView == _hiddenViewKey) {
+      // Removed entries only offer to come back; grouping or editing a tile
+      // the user cannot launch from here would be confusing.
+      return <_MenuItemData>[
+        _MenuItemData.header(app.name),
+        _MenuItemData.action(
+          label: strings.restoreApp,
+          icon: Icons.restore_rounded,
+          onTap: () => _restoreApp(appId),
+        ),
+      ];
+    }
     final currentGroupId = _effectiveGroup(appId);
     return <_MenuItemData>[
       _MenuItemData.header(app.name),
@@ -1117,6 +1235,25 @@ class _GroupedApplicationLauncherState
             onTap: () => _resetExec(appId),
           ),
       ],
+      _MenuItemData.divider(),
+      _pendingRemoveAppId == appId
+          ? _MenuItemData.action(
+              label: strings.confirmRemove,
+              icon: Icons.check_rounded,
+              destructive: true,
+              dangerColor: const Color(0xFFEF5350),
+              onTap: () => unawaited(_removeApp(appId)),
+            )
+          : _MenuItemData.action(
+              label: strings.removeApp(
+                _isUserOwnedDesktopEntry(
+                  widget.desktopAppsById[appId]?.desktopPath ?? '',
+                ),
+              ),
+              icon: Icons.delete_outline_rounded,
+              destructive: true,
+              onTap: () => _requestRemoveApp(appId),
+            ),
     ];
   }
 

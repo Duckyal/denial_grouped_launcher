@@ -32,6 +32,7 @@ class GroupedLauncherData {
     this.autoNames = const <String, String>{},
     this.groupOrder = const <String>[],
     this.appOrder = const <String, List<String>>{},
+    this.hiddenApps = const <String>{},
   });
 
   GroupedLauncherData.empty()
@@ -41,7 +42,8 @@ class GroupedLauncherData {
       execOverrides = const <String, String>{},
       autoNames = const <String, String>{},
       groupOrder = const <String>[],
-      appOrder = const <String, List<String>>{};
+      appOrder = const <String, List<String>>{},
+      hiddenApps = const <String>{};
 
   final List<LauncherGroup> groups;
 
@@ -64,6 +66,12 @@ class GroupedLauncherData {
   /// at the end in their default (alphabetical) order.
   final Map<String, List<String>> appOrder;
 
+  /// Launcher ids the user removed from the launcher. Desktop entries under
+  /// the user's own `$XDG_DATA_HOME/applications` are deleted on disk;
+  /// system-wide entries can only be hidden locally, so they are listed here
+  /// and stay out of every view until restored.
+  final Set<String> hiddenApps;
+
   GroupedLauncherData copyWith({
     List<LauncherGroup>? groups,
     Map<String, String>? assignments,
@@ -72,6 +80,7 @@ class GroupedLauncherData {
     Map<String, String>? autoNames,
     List<String>? groupOrder,
     Map<String, List<String>>? appOrder,
+    Set<String>? hiddenApps,
   }) {
     return GroupedLauncherData(
       groups: groups ?? this.groups,
@@ -81,6 +90,7 @@ class GroupedLauncherData {
       autoNames: autoNames ?? this.autoNames,
       groupOrder: groupOrder ?? this.groupOrder,
       appOrder: appOrder ?? this.appOrder,
+      hiddenApps: hiddenApps ?? this.hiddenApps,
     );
   }
 }
@@ -233,6 +243,17 @@ class GroupedLauncherStore {
           if (ids.isNotEmpty) appOrder[key] = ids;
         });
       }
+      final hiddenApps = <String>{};
+      final rawHidden = value['hiddenApps'];
+      if (rawHidden is List) {
+        for (final entry in rawHidden) {
+          if (entry is String &&
+              entry.isNotEmpty &&
+              entry.runes.length <= 512) {
+            hiddenApps.add(entry);
+          }
+        }
+      }
       return GroupedLauncherData(
         groups: groups,
         assignments: assignments,
@@ -245,6 +266,7 @@ class GroupedLauncherStore {
         autoNames: autoNames,
         groupOrder: groupOrder,
         appOrder: appOrder,
+        hiddenApps: hiddenApps,
       );
     } on FormatException {
       return GroupedLauncherData.empty();
@@ -271,6 +293,7 @@ class GroupedLauncherStore {
             'autoNames': data.autoNames,
             'groupOrder': data.groupOrder,
             'appOrder': data.appOrder,
+            'hiddenApps': <String>[...data.hiddenApps]..sort(),
           }),
           flush: true,
         );
