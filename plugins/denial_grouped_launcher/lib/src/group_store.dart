@@ -229,7 +229,7 @@ class GroupedLauncherStore {
       if (rawGroupOrder is List) {
         for (final entry in rawGroupOrder) {
           if (entry is String &&
-              (entry.startsWith('auto:') && _isKnownAutoGroupId(entry)) ||
+                  (entry.startsWith('auto:') && _isKnownAutoGroupId(entry)) ||
               (!entry.startsWith('auto:') && entry.isNotEmpty)) {
             groupOrder.add(entry);
           }

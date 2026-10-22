@@ -55,8 +55,7 @@ class _Strings {
   String get hiddenApps => zh ? '已移除' : 'Removed';
   String get confirmRemove => zh ? '再次点击确认移除' : 'Tap again to confirm';
   String get restoreApp => zh ? '恢复到启动器' : 'Restore to launcher';
-  String get hiddenHint =>
-      zh ? '此分组暂无应用' : 'No removed apps';
+  String get hiddenHint => zh ? '此分组暂无应用' : 'No removed apps';
   String get addApp => zh ? '添加应用' : 'Add application';
   String get addAppHint => zh
       ? '输入 AppImage 或 .desktop 文件路径，回车添加'
@@ -68,9 +67,11 @@ class _Strings {
       : 'Invalid desktop entry (no [Desktop Entry] or Exec)';
   String get addAppAlready =>
       zh ? '该文件已在应用目录中' : 'Already in the applications directory';
-  String get addAppType =>
-      zh ? '仅支持 .AppImage 或 .desktop 文件' : 'Only .AppImage and .desktop files are supported';
+  String get addAppType => zh
+      ? '仅支持 .AppImage 或 .desktop 文件'
+      : 'Only .AppImage and .desktop files are supported';
   String get addAppFailed => zh ? '添加失败' : 'Could not add';
+
   /// [deletesFile] distinguishes a real desktop-entry delete (user-owned
   /// entry) from hiding a system-wide entry that only this launcher hides.
   String removeApp(bool deletesFile) => deletesFile
@@ -187,7 +188,10 @@ class _Sidebar extends StatelessWidget {
                             dragHandle: const Icon(Icons.drag_handle_rounded),
                             onTap: () => onSelect(allGroups[i].id),
                             onSecondaryTap: (position) => allGroups[i].isAuto
-                                ? onAutoGroupContextMenu(allGroups[i].id, position)
+                                ? onAutoGroupContextMenu(
+                                    allGroups[i].id,
+                                    position,
+                                  )
                                 : onGroupContextMenu(allGroups[i].id, position),
                             onEditTap: (position) => allGroups[i].isAuto
                                 ? onAutoGroupRename(allGroups[i].id, position)
@@ -980,9 +984,7 @@ class _DropSlotTileState extends State<_DropSlotTile> {
     final box = _box;
     if (box == null) return _DropSide.none;
     final local = box.globalToLocal(global);
-    return local.dx > box.size.width / 2
-        ? _DropSide.after
-        : _DropSide.before;
+    return local.dx > box.size.width / 2 ? _DropSide.after : _DropSide.before;
   }
 
   @override
@@ -1424,11 +1426,11 @@ class _MenuActionRowState extends State<_MenuActionRow> {
             decoration: BoxDecoration(
               color: _hovered && !disabled
                   ? danger
-                      ? dangerColor.withValues(alpha: 0.12)
-                      : theme.cardColor(accent.container)
+                        ? dangerColor.withValues(alpha: 0.12)
+                        : theme.cardColor(accent.container)
                   : danger && !disabled
-                      ? dangerColor.withValues(alpha: 0.06)
-                      : accent.container.withValues(alpha: 0),
+                  ? dangerColor.withValues(alpha: 0.06)
+                  : accent.container.withValues(alpha: 0),
               borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
             ),
             child: Row(
@@ -1443,11 +1445,7 @@ class _MenuActionRowState extends State<_MenuActionRow> {
                         )
                       : item.icon == null
                       ? null
-                      : Icon(
-                          item.icon,
-                          size: 15,
-                          color: iconColor,
-                        ),
+                      : Icon(item.icon, size: 15, color: iconColor),
                 ),
                 const SizedBox(width: 8),
                 Expanded(

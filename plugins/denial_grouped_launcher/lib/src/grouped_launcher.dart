@@ -305,8 +305,7 @@ class _GroupedApplicationLauncherState
       _selectedView = viewKey;
       _selectedIndex = -1;
       _data = _data.copyWith(
-        lastUsedGroup:
-            viewKey == _ungroupedViewKey || viewKey == _hiddenViewKey
+        lastUsedGroup: viewKey == _ungroupedViewKey || viewKey == _hiddenViewKey
             ? ''
             : viewKey,
       );
@@ -736,8 +735,8 @@ class _GroupedApplicationLauncherState
   void _openAddAppMenu(Offset globalPosition) {
     // Opened from a group's empty area: the new entry is pinned to that
     // group (or explicitly ungrouped) once installed.
-    final target = _selectedView == _allViewKey ||
-            _selectedView == _hiddenViewKey
+    final target =
+        _selectedView == _allViewKey || _selectedView == _hiddenViewKey
         ? null
         : _selectedView;
     setState(() => _addAppError = null);
@@ -798,7 +797,9 @@ class _GroupedApplicationLauncherState
   /// watches that directory, so the new tile appears without a rescan.
   /// Returns (installed desktop-file id, managed AppImage copy path, error);
   /// the host's launcher id is `desktop:<id>`.
-  Future<(String?, String?, String?)> _installDesktopEntry(String rawPath) async {
+  Future<(String?, String?, String?)> _installDesktopEntry(
+    String rawPath,
+  ) async {
     var path = rawPath;
     final home = ref.read(startupEnvironmentProvider)['HOME']?.trim() ?? '';
     if (path == '~') {
@@ -856,9 +857,9 @@ class _GroupedApplicationLauncherState
         }
         final name =
             RegExp(
-                  r'^Name=(.*)$',
-                  multiLine: true,
-                ).firstMatch(contents)?.group(1)?.trim() ??
+              r'^Name=(.*)$',
+              multiLine: true,
+            ).firstMatch(contents)?.group(1)?.trim() ??
             '';
         final fileName = name.isEmpty
             ? _basename(path)
@@ -891,8 +892,7 @@ class _GroupedApplicationLauncherState
         ? ''
         : '$home/.local/share';
     if (root.isEmpty) return null;
-    final dirPath =
-        '${root.replaceAll(RegExp(r'/+$'), '')}/denial/appimages';
+    final dirPath = '${root.replaceAll(RegExp(r'/+$'), '')}/denial/appimages';
     final source = File(path);
     try {
       final directory = Directory(dirPath);
@@ -926,7 +926,9 @@ class _GroupedApplicationLauncherState
         : home.isEmpty
         ? ''
         : '$home/.local/share';
-    return root.isEmpty ? '' : '${root.replaceAll(RegExp(r'/+$'), '')}/applications';
+    return root.isEmpty
+        ? ''
+        : '${root.replaceAll(RegExp(r'/+$'), '')}/applications';
   }
 
   /// Writes [contents] to a non-colliding file under the user applications
@@ -958,9 +960,7 @@ class _GroupedApplicationLauncherState
   /// and packaging tokens are dropped, dashes/underscores become spaces.
   static String _appImageDisplayName(String fileName) {
     final suffix = RegExp(r'\.appimage$', caseSensitive: false);
-    var base = fileName
-        .replaceAll(suffix, '')
-        .replaceAll(RegExp(r'[_.]'), ' ');
+    var base = fileName.replaceAll(suffix, '').replaceAll(RegExp(r'[_.]'), ' ');
     final noise = RegExp(
       r'[\s-]+((\d+\.)*\d+|x86[-_ ]?64|amd64|i386|arm64|aarch64|linux|portable|appimage)$',
       caseSensitive: false,
@@ -1186,218 +1186,243 @@ class _GroupedApplicationLauncherState
       child: MouseRegion(
         onEnter: (_) => widget.launcher.onEnter(),
         onExit: (_) => widget.launcher.onExit(),
-        child: CallbackShortcuts(
-          bindings: <ShortcutActivator, VoidCallback>{
-            const SingleActivator(LogicalKeyboardKey.escape): () {
-              if (_menu != null) {
-                _closeMenu();
-              } else {
-                widget.launcher.onDismiss();
-              }
+        // The shell intentionally has no WidgetsApp, so the standard
+        // key-to-intent map (Ctrl+V/C/X/Z/A, Home/End, word motions…) is
+        // mounted nowhere; a bare EditableText registers the paste action
+        // but nothing turns Ctrl+V into a PasteTextIntent. Provide the
+        // layer here, ABOVE the launcher's own bindings: deeper handlers
+        // win, so Escape and the grid arrows keep working exactly as
+        // before, while keys the launcher never binds now reach whichever
+        // text field holds focus (search, rename, add-app…).
+        child: DefaultTextEditingShortcuts(
+          child: CallbackShortcuts(
+            bindings: <ShortcutActivator, VoidCallback>{
+              const SingleActivator(LogicalKeyboardKey.escape): () {
+                if (_menu != null) {
+                  _closeMenu();
+                } else {
+                  widget.launcher.onDismiss();
+                }
+              },
+              const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+                  _moveSelection(apps, 1),
+              const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+                  _moveSelection(apps, -1),
+              const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
+                  _moveSelection(apps, _columnCount),
+              const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
+                  _moveSelection(apps, -_columnCount),
             },
-            const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
-                _moveSelection(apps, 1),
-            const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
-                _moveSelection(apps, -1),
-            const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
-                _moveSelection(apps, _columnCount),
-            const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
-                _moveSelection(apps, -_columnCount),
-          },
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              _panelSize = constraints.biggest;
-              _columnCount =
-                  ((constraints.maxWidth - _sidebarWidth - 12 - _tileSpacing) /
-                          (_tileExtent + _tileSpacing))
-                      .floor()
-                      .clamp(1, 32)
-                      .toInt();
-              return Overlay.wrap(
-                clipBehavior: Clip.none,
-                child: Stack(
-                  children: [
-                    DecoratedBox(
-                      key: _panelKey,
-                      decoration: BoxDecoration(
-                        color: theme.panelColor(
-                          context.shellColors.panelBackground,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                _panelSize = constraints.biggest;
+                _columnCount =
+                    ((constraints.maxWidth -
+                                _sidebarWidth -
+                                12 -
+                                _tileSpacing) /
+                            (_tileExtent + _tileSpacing))
+                        .floor()
+                        .clamp(1, 32)
+                        .toInt();
+                return Overlay.wrap(
+                  clipBehavior: Clip.none,
+                  child: Stack(
+                    children: [
+                      DecoratedBox(
+                        key: _panelKey,
+                        decoration: BoxDecoration(
+                          color: theme.panelColor(
+                            context.shellColors.panelBackground,
+                          ),
+                          borderRadius: BorderRadius.circular(
+                            theme.panelRadius,
+                          ),
+                          border: Border.all(
+                            color: context.shellColors.hairline,
+                          ),
                         ),
-                        borderRadius: BorderRadius.circular(theme.panelRadius),
-                        border: Border.all(color: context.shellColors.hairline),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _UserPowerHeader(
-                              displayName: _profileDisplayName.isNotEmpty
-                                  ? _profileDisplayName
-                                  : _accountName.isNotEmpty
-                                  ? _accountName
-                                  : strings.userFallback,
-                              avatarPath: _profileAvatarPath,
-                              busy: session.busy,
-                              onOpenSettings: _openSettings,
-                              onPowerMenu: (globalPosition) => _openMenu(
-                                _MenuState(
-                                  mode: _MenuMode.power,
-                                  position: globalPosition,
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _UserPowerHeader(
+                                displayName: _profileDisplayName.isNotEmpty
+                                    ? _profileDisplayName
+                                    : _accountName.isNotEmpty
+                                    ? _accountName
+                                    : strings.userFallback,
+                                avatarPath: _profileAvatarPath,
+                                busy: session.busy,
+                                onOpenSettings: _openSettings,
+                                onPowerMenu: (globalPosition) => _openMenu(
+                                  _MenuState(
+                                    mode: _MenuMode.power,
+                                    position: globalPosition,
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Expanded(
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  _Sidebar(
-                                    width: _sidebarWidth,
-                                    data: _data,
-                                    selectedView: _selectedView,
-                                    counts: counts,
-                                    autoGroups: autoGroups,
-                                    strings: strings,
-                                    visibleAllCount: allApps.length,
-                                    hiddenCount: hiddenCount,
-                                    onSelect: _selectView,
-                                    onNewGroup: (globalPosition) => _openMenu(
-                                      _MenuState(
-                                        mode: _MenuMode.newGroup,
-                                        position: globalPosition,
+                              const SizedBox(height: 8),
+                              Expanded(
+                                child: Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _Sidebar(
+                                      width: _sidebarWidth,
+                                      data: _data,
+                                      selectedView: _selectedView,
+                                      counts: counts,
+                                      autoGroups: autoGroups,
+                                      strings: strings,
+                                      visibleAllCount: allApps.length,
+                                      hiddenCount: hiddenCount,
+                                      onSelect: _selectView,
+                                      onNewGroup: (globalPosition) => _openMenu(
+                                        _MenuState(
+                                          mode: _MenuMode.newGroup,
+                                          position: globalPosition,
+                                        ),
                                       ),
+                                      onGroupContextMenu: (groupId, position) =>
+                                          _openMenu(
+                                            _MenuState(
+                                              mode: _MenuMode.group,
+                                              position: position,
+                                              groupId: groupId,
+                                            ),
+                                          ),
+                                      onRenameGroup: (groupId, position) =>
+                                          _openMenu(
+                                            _MenuState(
+                                              mode: _MenuMode.renameGroup,
+                                              position: position,
+                                              groupId: groupId,
+                                            ),
+                                          ),
+                                      onAutoGroupContextMenu:
+                                          (groupId, position) => _openMenu(
+                                            _MenuState(
+                                              mode: _MenuMode.autoGroup,
+                                              position: position,
+                                              groupId: groupId,
+                                            ),
+                                          ),
+                                      onAutoGroupRename: (groupId, position) =>
+                                          _openMenu(
+                                            _MenuState(
+                                              mode: _MenuMode.renameGroup,
+                                              position: position,
+                                              groupId: groupId,
+                                            ),
+                                          ),
+                                      onReorderGroup: (oldIndex, newIndex) =>
+                                          _reorderGroup(
+                                            oldIndex,
+                                            newIndex,
+                                            counts,
+                                          ),
                                     ),
-                                    onGroupContextMenu: (groupId, position) =>
-                                        _openMenu(
-                                          _MenuState(
-                                            mode: _MenuMode.group,
-                                            position: position,
-                                            groupId: groupId,
-                                          ),
-                                        ),
-                                    onRenameGroup: (groupId, position) =>
-                                        _openMenu(
-                                          _MenuState(
-                                            mode: _MenuMode.renameGroup,
-                                            position: position,
-                                            groupId: groupId,
-                                          ),
-                                        ),
-                                    onAutoGroupContextMenu:
-                                        (groupId, position) => _openMenu(
-                                          _MenuState(
-                                            mode: _MenuMode.autoGroup,
-                                            position: position,
-                                            groupId: groupId,
-                                          ),
-                                        ),
-                                    onAutoGroupRename: (groupId, position) =>
-                                        _openMenu(
-                                          _MenuState(
-                                            mode: _MenuMode.renameGroup,
-                                            position: position,
-                                            groupId: groupId,
-                                          ),
-                                        ),
-                                    onReorderGroup: (oldIndex, newIndex) =>
-                                        _reorderGroup(oldIndex, newIndex, counts),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        if (_selectedView == _allViewKey) ...[
-                                          _SearchField(
-                                            controller: _searchController,
-                                            focusNode:
-                                                widget.launcher.searchFocusNode,
-                                            onClear: _clearSearch,
-                                            onSubmit: () {
-                                              if (apps.isNotEmpty) {
-                                                _launch(
-                                                  apps[_selectedIndex < 0
-                                                      ? 0
-                                                      : _selectedIndex],
-                                                );
-                                              }
-                                            },
-                                          ),
-                                          const SizedBox(height: 10),
-                                          if (suggestedApps.isNotEmpty) ...[
-                                            _BlockCard(
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          if (_selectedView == _allViewKey) ...[
+                                            _SearchField(
+                                              controller: _searchController,
+                                              focusNode: widget
+                                                  .launcher
+                                                  .searchFocusNode,
+                                              onClear: _clearSearch,
+                                              onSubmit: () {
+                                                if (apps.isNotEmpty) {
+                                                  _launch(
+                                                    apps[_selectedIndex < 0
+                                                        ? 0
+                                                        : _selectedIndex],
+                                                  );
+                                                }
+                                              },
+                                            ),
+                                            const SizedBox(height: 10),
+                                            if (suggestedApps.isNotEmpty) ...[
+                                              _BlockCard(
+                                                padding: const EdgeInsets.all(
+                                                  _gridCardPadding,
+                                                ),
+                                                child: _SuggestionsRow(
+                                                  apps: suggestedApps,
+                                                  tileExtent:
+                                                      _suggestedTileExtent,
+                                                  onLaunch: _launch,
+                                                  onContextMenu: _openTileMenu,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 10),
+                                            ],
+                                          ],
+                                          Expanded(
+                                            child: _BlockCard(
                                               padding: const EdgeInsets.all(
                                                 _gridCardPadding,
                                               ),
-                                              child: _SuggestionsRow(
-                                                apps: suggestedApps,
-                                                tileExtent:
-                                                    _suggestedTileExtent,
-                                                onLaunch: _launch,
-                                                onContextMenu: _openTileMenu,
+                                              child: _AppGrid(
+                                                controller: _gridController,
+                                                apps: apps,
+                                                loading:
+                                                    !_dataLoaded &&
+                                                    widget
+                                                        .launcher
+                                                        .applications
+                                                        .isEmpty,
+                                                loadingLabel:
+                                                    l10n.loadingApplications,
+                                                emptyLabel:
+                                                    _selectedView ==
+                                                        _hiddenViewKey
+                                                    ? strings.hiddenHint
+                                                    : queryActive
+                                                    ? l10n.noApplicationsFound
+                                                    : strings.emptyGroup,
+                                                showSearchEmptyIcon:
+                                                    queryActive,
+                                                selectedIndex: _selectedIndex,
+                                                draggable:
+                                                    _selectedView !=
+                                                        _allViewKey &&
+                                                    _selectedView !=
+                                                        _hiddenViewKey,
+                                                onReorder: _reorderApp,
+                                                onTap: _launch,
+                                                onSecondaryTap: _openTileMenu,
+                                                onBackgroundContextMenu:
+                                                    _selectedView ==
+                                                        _hiddenViewKey
+                                                    ? null
+                                                    : _openAddAppMenu,
                                               ),
                                             ),
-                                            const SizedBox(height: 10),
-                                          ],
-                                        ],
-                                        Expanded(
-                                          child: _BlockCard(
-                                            padding: const EdgeInsets.all(
-                                              _gridCardPadding,
-                                            ),
-                                            child: _AppGrid(
-                                              controller: _gridController,
-                                              apps: apps,
-                                              loading:
-                                                  !_dataLoaded &&
-                                                  widget
-                                                      .launcher
-                                                      .applications
-                                                      .isEmpty,
-                                              loadingLabel:
-                                                  l10n.loadingApplications,
-                                              emptyLabel: _selectedView ==
-                                                      _hiddenViewKey
-                                                  ? strings.hiddenHint
-                                                  : queryActive
-                                                  ? l10n.noApplicationsFound
-                                                  : strings.emptyGroup,
-                                              showSearchEmptyIcon: queryActive,
-                                              selectedIndex: _selectedIndex,
-                                              draggable:
-                                                  _selectedView !=
-                                                      _allViewKey &&
-                                                  _selectedView !=
-                                                      _hiddenViewKey,
-                                              onReorder: _reorderApp,
-                                              onTap: _launch,
-                                              onSecondaryTap: _openTileMenu,
-                                              onBackgroundContextMenu:
-                                                  _selectedView ==
-                                                  _hiddenViewKey
-                                                  ? null
-                                                  : _openAddAppMenu,
-                                            ),
                                           ),
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    if (_menu != null)
-                      ..._menuOverlay(autoGroups, strings, session),
-                  ],
-                ),
-              );
-            },
+                      if (_menu != null)
+                        ..._menuOverlay(autoGroups, strings, session),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -1626,8 +1651,9 @@ class _GroupedApplicationLauncherState
           label: strings.confirm,
           icon: Icons.check_rounded,
           destructive: _powerIsDestructive(pending),
-          dangerColor:
-              _powerIsDestructive(pending) ? const Color(0xFFEF5350) : null,
+          dangerColor: _powerIsDestructive(pending)
+              ? const Color(0xFFEF5350)
+              : null,
           onTap: () => unawaited(controller.confirm()),
         ),
         _MenuItemData.action(
@@ -1689,8 +1715,9 @@ class _GroupedApplicationLauncherState
         label: _powerActionLabel(action, strings),
         icon: icon,
         destructive: _powerIsDestructive(action),
-        dangerColor:
-            _powerIsDestructive(action) ? const Color(0xFFEF5350) : null,
+        dangerColor: _powerIsDestructive(action)
+            ? const Color(0xFFEF5350)
+            : null,
         disabled: !enabled,
         checked: session.busyAction == action,
         onTap: enabled ? onTap : null,
@@ -1838,8 +1865,7 @@ class _GroupedApplicationLauncherState
         hint: strings.addAppHint,
         onSubmit: () => unawaited(_addApplication(controller.text)),
       ),
-      if (error != null && error.isNotEmpty)
-        _MenuItemData.label(error),
+      if (error != null && error.isNotEmpty) _MenuItemData.label(error),
       _MenuItemData.action(
         label: strings.save,
         icon: Icons.add_rounded,
