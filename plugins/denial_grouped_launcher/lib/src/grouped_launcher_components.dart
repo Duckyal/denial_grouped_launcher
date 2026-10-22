@@ -57,6 +57,20 @@ class _Strings {
   String get restoreApp => zh ? '恢复到启动器' : 'Restore to launcher';
   String get hiddenHint =>
       zh ? '此分组暂无应用' : 'No removed apps';
+  String get addApp => zh ? '添加应用' : 'Add application';
+  String get addAppHint => zh
+      ? '输入 AppImage 或 .desktop 文件路径，回车添加'
+      : 'Path to an AppImage or .desktop file, Enter to add';
+  String get addAppEmpty => zh ? '请输入文件路径' : 'Enter a file path';
+  String get addAppNotFound => zh ? '文件不存在' : 'File not found';
+  String get addAppInvalidDesktop => zh
+      ? '无效的 desktop 文件（缺少 [Desktop Entry] 或 Exec）'
+      : 'Invalid desktop entry (no [Desktop Entry] or Exec)';
+  String get addAppAlready =>
+      zh ? '该文件已在应用目录中' : 'Already in the applications directory';
+  String get addAppType =>
+      zh ? '仅支持 .AppImage 或 .desktop 文件' : 'Only .AppImage and .desktop files are supported';
+  String get addAppFailed => zh ? '添加失败' : 'Could not add';
   /// [deletesFile] distinguishes a real desktop-entry delete (user-owned
   /// entry) from hiding a system-wide entry that only this launcher hides.
   String removeApp(bool deletesFile) => deletesFile
@@ -78,6 +92,7 @@ class _Sidebar extends StatelessWidget {
     required this.hiddenCount,
     required this.onSelect,
     required this.onNewGroup,
+    required this.onAddApp,
     required this.onGroupContextMenu,
     required this.onRenameGroup,
     required this.onAutoGroupContextMenu,
@@ -99,6 +114,7 @@ class _Sidebar extends StatelessWidget {
   final int hiddenCount;
   final ValueChanged<String> onSelect;
   final ValueChanged<Offset> onNewGroup;
+  final ValueChanged<Offset> onAddApp;
   final void Function(String groupId, Offset globalPosition) onGroupContextMenu;
   final void Function(String groupId, Offset globalPosition) onRenameGroup;
   final void Function(String groupId, Offset globalPosition)
@@ -211,6 +227,17 @@ class _Sidebar extends StatelessWidget {
               selected: false,
               onTap: () {},
               onTapPositioned: onNewGroup,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: _SideEntry(
+              icon: Icons.add_circle_outline_rounded,
+              label: strings.addApp,
+              count: null,
+              selected: false,
+              onTap: () {},
+              onTapPositioned: onAddApp,
             ),
           ),
         ],

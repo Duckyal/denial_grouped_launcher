@@ -62,6 +62,7 @@ enum _MenuMode {
   editExec,
   power,
   autoGroup,
+  addApp,
 }
 
 @immutable
@@ -117,6 +118,14 @@ class _GroupedApplicationLauncherState
   /// Application awaiting the second-click confirmation in the tile menu's
   /// "remove from launcher" step. Reset whenever the menu closes.
   String? _pendingRemoveAppId;
+
+  /// Validation message shown inside the "add application" menu.
+  String? _addAppError;
+  bool _addAppBusy = false;
+
+  /// Latest localized strings, captured each build so async handlers can
+  /// report errors without a BuildContext.
+  _Strings? _lastStrings;
 
   /// logind verbs the launcher runs itself, so one unsupported verb cannot
   /// disable the whole power menu. Created on first use to keep the D-Bus
@@ -705,6 +714,179 @@ class _GroupedApplicationLauncherState
     _persist();
   }
 
+  // --- Add application (AppImage / desktop entry) ----------------------
+
+  void _openAddAppMenu(Offset globalPosition) {
+    setState(() => _addAppError = null);
+    _openMenu(
+      _MenuState(mode: _MenuMode.addApp, position: globalPosition),
+    );
+  }
+
+  Future<void> _addApplication(String rawPath) async {
+    if (_addAppBusy) return;
+    final trimmed = rawPath.trim();
+    if (trimmed.isEmpty) {
+      setState(() => _addAppError = _lastStrings?.addAppEmpty);
+      return;
+    }
+    setState(() => _addAppBusy = true);
+    final (bool ok, String? error) = await _installDesktopEntry(trimmed);
+    if (!mounted) return;
+    setState(() {
+      _addAppBusy = false;
+      if (ok) {
+        _closeMenuInternal();
+      } else {
+        _addAppError = error;
+      }
+    });
+  }
+
+  /// Installs [rawPath] (an AppImage or a desktop entry elsewhere on disk)
+  /// as a `.desktop` file under `$XDG_DATA_HOME/applications`. The host
+  /// watches that directory, so the new tile appears without a rescan.
+  Future<(bool, String?)> _installDesktopEntry(String rawPath) async {
+    var path = rawPath;
+    final home = ref.read(startupEnvironmentProvider)['HOME']?.trim() ?? '';
+    if (path == '~') {
+      return (false, _lastStrings?.addAppNotFound);
+    }
+    if (path.startsWith('~/') && home.isNotEmpty) {
+      path = '$home/${path.substring(2)}';
+    }
+    if (!path.startsWith('/') || !File(path).existsSync()) {
+      return (false, _lastStrings?.addAppNotFound);
+    }
+    final lower = path.toLowerCase();
+    try {
+      if (lower.endsWith('.appimage')) {
+        final stat = File(path).statSync();
+        if (stat.type != FileSystemEntityType.file || stat.size == 0) {
+          return (false, _lastStrings?.addAppNotFound);
+        }
+        // AppImages shipped inside archives often lose the exec bit; the
+        // host's spawn would fail on a non-executable file. Owner-execute
+        // is octal 0100.
+        if (stat.mode & 0x40 == 0) {
+          await Process.run('chmod', ['u+x', path]);
+        }
+        final name = _appImageDisplayName(_basename(path));
+        final exec = '"${path.replaceAll('"', r'\"')}"';
+        final written = _writeDesktopFile(
+          '${_desktopSlug(name)}.desktop',
+          <String>[
+            '[Desktop Entry]',
+            'Type=Application',
+            'Name=$name',
+            'Exec=$exec',
+            'Terminal=false',
+            '',
+          ].join('\n'),
+        );
+        return (
+          written,
+          written ? null : _lastStrings?.addAppFailed,
+        );
+      }
+      if (lower.endsWith('.desktop')) {
+        final contents = File(path).readAsStringSync();
+        if (!contents.contains('[Desktop Entry]') ||
+            !RegExp(r'^Exec=', multiLine: true).hasMatch(contents)) {
+          return (false, _lastStrings?.addAppInvalidDesktop);
+        }
+        if (_dirname(path) == _userApplicationsDir()) {
+          return (false, _lastStrings?.addAppAlready);
+        }
+        final name =
+            RegExp(
+                  r'^Name=(.*)$',
+                  multiLine: true,
+                ).firstMatch(contents)?.group(1)?.trim() ??
+            '';
+        final fileName = name.isEmpty
+            ? _basename(path)
+            : '${_desktopSlug(name)}.desktop';
+        final written = _writeDesktopFile(fileName, contents);
+        return (
+          written,
+          written ? null : _lastStrings?.addAppFailed,
+        );
+      }
+      return (false, _lastStrings?.addAppType);
+    } on Object catch (error) {
+      return (false, '${_lastStrings?.addAppFailed}: $error');
+    }
+  }
+
+  String _userApplicationsDir() {
+    final environment = ref.read(startupEnvironmentProvider);
+    final data = environment['XDG_DATA_HOME']?.trim();
+    final home = environment['HOME']?.trim() ?? '';
+    final root = data != null && data.startsWith('/')
+        ? data
+        : home.isEmpty
+        ? ''
+        : '$home/.local/share';
+    return root.isEmpty ? '' : '${root.replaceAll(RegExp(r'/+$'), '')}/applications';
+  }
+
+  bool _writeDesktopFile(String fileName, String contents) {
+    final dirPath = _userApplicationsDir();
+    if (dirPath.isEmpty) return false;
+    final directory = Directory(dirPath);
+    if (!directory.existsSync()) directory.createSync(recursive: true);
+    final stem = fileName.substring(0, fileName.length - '.desktop'.length);
+    var candidate = File('$dirPath/$fileName');
+    var serial = 2;
+    while (candidate.existsSync()) {
+      candidate = File('$dirPath/$stem-$serial.desktop');
+      serial += 1;
+    }
+    candidate.writeAsStringSync(contents);
+    return true;
+  }
+
+  /// "Foo-Bar-1.2.3-x86_64.AppImage" -> "Foo Bar"; trailing version, arch
+  /// and packaging tokens are dropped, dashes/underscores become spaces.
+  static String _appImageDisplayName(String fileName) {
+    final suffix = RegExp(r'\.appimage$', caseSensitive: false);
+    var base = fileName
+        .replaceAll(suffix, '')
+        .replaceAll(RegExp(r'[_.]'), ' ');
+    final noise = RegExp(
+      r'[\s-]+((\d+\.)*\d+|x86[-_ ]?64|amd64|i386|arm64|aarch64|linux|portable|appimage)$',
+      caseSensitive: false,
+    );
+    while (true) {
+      final match = noise.firstMatch(base);
+      if (match == null) break;
+      base = base.substring(0, match.start);
+    }
+    base = base.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return base.isEmpty ? fileName : base;
+  }
+
+  static String _desktopSlug(String name) {
+    final slug = name
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    return slug.isEmpty ? 'app' : slug;
+  }
+
+  static String _basename(String path) {
+    final trimmed = path.replaceAll(RegExp(r'/+$'), '');
+    final slash = trimmed.lastIndexOf('/');
+    return slash < 0 ? trimmed : trimmed.substring(slash + 1);
+  }
+
+  static String _dirname(String path) {
+    final trimmed = path.replaceAll(RegExp(r'/+$'), '');
+    final slash = trimmed.lastIndexOf('/');
+    return slash <= 0 ? '/' : trimmed.substring(0, slash);
+  }
+
   // --- Context menu ----------------------------------------------------
 
   void _openMenu(_MenuState menu) {
@@ -719,7 +901,8 @@ class _GroupedApplicationLauncherState
       }
       if (menu.mode == _MenuMode.newGroup ||
           menu.mode == _MenuMode.renameGroup ||
-          menu.mode == _MenuMode.editExec) {
+          menu.mode == _MenuMode.editExec ||
+          menu.mode == _MenuMode.addApp) {
         String initial = '';
         if (menu.mode == _MenuMode.renameGroup) {
           final groupId = menu.groupId ?? '';
@@ -862,6 +1045,7 @@ class _GroupedApplicationLauncherState
     final strings = _Strings(
       Localizations.localeOf(context).languageCode == 'zh',
     );
+    _lastStrings = strings;
     final theme = ShellTheme.of(context);
     final session = ref.watch(sessionPowerProvider);
     final catalogApps = _sortedApps();
@@ -972,6 +1156,7 @@ class _GroupedApplicationLauncherState
                                         position: globalPosition,
                                       ),
                                     ),
+                                    onAddApp: _openAddAppMenu,
                                     onGroupContextMenu: (groupId, position) =>
                                         _openMenu(
                                           _MenuState(
@@ -1146,6 +1331,11 @@ class _GroupedApplicationLauncherState
         _MenuMode.renameGroup ||
         _MenuMode.editExec => _inputItems(
           mode: menu.mode,
+          controller: controller,
+          focus: focus,
+          strings: strings,
+        ),
+        _MenuMode.addApp => _addAppItems(
           controller: controller,
           focus: focus,
           strings: strings,
@@ -1497,6 +1687,40 @@ class _GroupedApplicationLauncherState
         label: strings.save,
         icon: Icons.check_rounded,
         onTap: () => onSubmit(controller.text),
+      ),
+      _MenuItemData.action(
+        label: strings.cancel,
+        icon: Icons.close_rounded,
+        onTap: _closeMenu,
+      ),
+    ];
+  }
+
+  List<_MenuItemData> _addAppItems({
+    required TextEditingController? controller,
+    required FocusNode? focus,
+    required _Strings strings,
+  }) {
+    if (controller == null || focus == null) {
+      return <_MenuItemData>[];
+    }
+    final error = _addAppError;
+    return <_MenuItemData>[
+      _MenuItemData.header(strings.addApp),
+      _MenuItemData.input(
+        controller: controller,
+        focusNode: focus,
+        hint: strings.addAppHint,
+        onSubmit: () => unawaited(_addApplication(controller.text)),
+      ),
+      if (error != null && error.isNotEmpty)
+        _MenuItemData.label(error),
+      _MenuItemData.action(
+        label: strings.save,
+        icon: Icons.add_rounded,
+        disabled: _addAppBusy,
+        checked: _addAppBusy,
+        onTap: () => unawaited(_addApplication(controller.text)),
       ),
       _MenuItemData.action(
         label: strings.cancel,
