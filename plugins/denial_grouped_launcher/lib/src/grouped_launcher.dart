@@ -686,6 +686,11 @@ class _GroupedApplicationLauncherState
         // still disappears from this user's view.
       }
     }
+    // The entry is gone from the launcher, so drop the managed AppImage copy
+    // too. When the entry delete failed (it stays on disk and is only hidden
+    // locally), keep the copy so a later restore still launches.
+    final managed = deletedOnDisk ? _data.managedFiles[appId] : null;
+    if (managed != null) unawaited(_deleteManaged(managed));
     if (!mounted) return;
     setState(() {
       final hidden = Set<String>.of(_data.hiddenApps);
@@ -693,16 +698,28 @@ class _GroupedApplicationLauncherState
         ..remove(appId);
       final overrides = Map<String, String>.of(_data.execOverrides)
         ..remove(appId);
+      final managedFiles = Map<String, String>.of(_data.managedFiles);
+      if (deletedOnDisk) managedFiles.remove(appId);
       if (!deletedOnDisk) hidden.add(appId);
       _data = _data.copyWith(
         hiddenApps: hidden,
         assignments: assignments,
         execOverrides: overrides,
+        managedFiles: managedFiles,
       );
       _pendingRemoveAppId = null;
       _menu = null;
     });
     _persist();
+  }
+
+  Future<void> _deleteManaged(String path) async {
+    try {
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+    } on Object {
+      // A leftover copy is harmless; the launcher entry is already gone.
+    }
   }
 
   void _restoreApp(String appId) {
@@ -741,14 +758,16 @@ class _GroupedApplicationLauncherState
       return;
     }
     setState(() => _addAppBusy = true);
-    final (String? installed, String? error) = await _installDesktopEntry(
-      trimmed,
-    );
+    final (String? installed, String? managed, String? error) =
+        await _installDesktopEntry(trimmed);
     if (!mounted) return;
     var added = false;
     setState(() {
       _addAppBusy = false;
       if (installed == null) {
+        // A managed copy was made but the entry write failed; drop the copy
+        // so we do not leak files under the managed directory.
+        if (managed != null) unawaited(_deleteManaged(managed));
         _addAppError = error;
         return;
       }
@@ -761,7 +780,13 @@ class _GroupedApplicationLauncherState
             ? ''
             : targetGroup;
       }
-      _data = _data.copyWith(assignments: assignments, hiddenApps: hidden);
+      var data = _data.copyWith(assignments: assignments, hiddenApps: hidden);
+      if (managed != null) {
+        final managedFiles = Map<String, String>.of(_data.managedFiles)
+          ..[launcherId] = managed;
+        data = data.copyWith(managedFiles: managedFiles);
+      }
+      _data = data;
       _closeMenuInternal();
       added = true;
     });
@@ -771,35 +796,36 @@ class _GroupedApplicationLauncherState
   /// Installs [rawPath] (an AppImage or a desktop entry elsewhere on disk)
   /// as a `.desktop` file under `$XDG_DATA_HOME/applications`. The host
   /// watches that directory, so the new tile appears without a rescan.
-  /// Returns the installed desktop-file id (the host's launcher id is
-  /// `desktop:<id>`), or a localized error message.
-  Future<(String?, String?)> _installDesktopEntry(String rawPath) async {
+  /// Returns (installed desktop-file id, managed AppImage copy path, error);
+  /// the host's launcher id is `desktop:<id>`.
+  Future<(String?, String?, String?)> _installDesktopEntry(String rawPath) async {
     var path = rawPath;
     final home = ref.read(startupEnvironmentProvider)['HOME']?.trim() ?? '';
     if (path == '~') {
-      return (null, _lastStrings?.addAppNotFound);
+      return (null, null, _lastStrings?.addAppNotFound);
     }
     if (path.startsWith('~/') && home.isNotEmpty) {
       path = '$home/${path.substring(2)}';
     }
     if (!path.startsWith('/') || !File(path).existsSync()) {
-      return (null, _lastStrings?.addAppNotFound);
+      return (null, null, _lastStrings?.addAppNotFound);
     }
     final lower = path.toLowerCase();
     try {
       if (lower.endsWith('.appimage')) {
         final stat = File(path).statSync();
         if (stat.type != FileSystemEntityType.file || stat.size == 0) {
-          return (null, _lastStrings?.addAppNotFound);
+          return (null, null, _lastStrings?.addAppNotFound);
         }
-        // AppImages shipped inside archives often lose the exec bit; the
-        // host's spawn would fail on a non-executable file. Owner-execute
-        // is octal 0100.
-        if (stat.mode & 0x40 == 0) {
-          await Process.run('chmod', ['u+x', path]);
+        // Keep a private copy under the plugin's managed directory so the
+        // tile survives the original file being moved or deleted. The
+        // original is never modified.
+        final managed = await _copyToManagedAppImage(path);
+        if (managed == null) {
+          return (null, null, _lastStrings?.addAppFailed);
         }
         final name = _appImageDisplayName(_basename(path));
-        final exec = '"${path.replaceAll('"', r'\"')}"';
+        final exec = '"${managed.replaceAll('"', r'\"')}"';
         final installed = _writeDesktopFile(
           '${_desktopSlug(name)}.desktop',
           <String>[
@@ -811,8 +837,11 @@ class _GroupedApplicationLauncherState
             '',
           ].join('\n'),
         );
+        // The copy is returned on success (to record it) and on failure (so
+        // the caller can delete the orphan).
         return (
           installed,
+          managed,
           installed == null ? _lastStrings?.addAppFailed : null,
         );
       }
@@ -820,10 +849,10 @@ class _GroupedApplicationLauncherState
         final contents = File(path).readAsStringSync();
         if (!contents.contains('[Desktop Entry]') ||
             !RegExp(r'^Exec=', multiLine: true).hasMatch(contents)) {
-          return (null, _lastStrings?.addAppInvalidDesktop);
+          return (null, null, _lastStrings?.addAppInvalidDesktop);
         }
         if (_dirname(path) == _userApplicationsDir()) {
-          return (null, _lastStrings?.addAppAlready);
+          return (null, null, _lastStrings?.addAppAlready);
         }
         final name =
             RegExp(
@@ -837,12 +866,54 @@ class _GroupedApplicationLauncherState
         final installed = _writeDesktopFile(fileName, contents);
         return (
           installed,
+          null,
           installed == null ? _lastStrings?.addAppFailed : null,
         );
       }
-      return (null, _lastStrings?.addAppType);
+      return (null, null, _lastStrings?.addAppType);
     } on Object catch (error) {
-      return (null, '${_lastStrings?.addAppFailed}: $error');
+      return (null, null, '${_lastStrings?.addAppFailed}: $error');
+    }
+  }
+
+  /// Copies [path] into `$XDG_DATA_HOME/denial/appimages` with a collision-
+  /// free name and owner-execute bit. Returns the copy's absolute path, or
+  /// null if the directory or the copy could not be created. Every add gets
+  /// its own copy (even of the same source), so removing one tile never
+  /// breaks another.
+  Future<String?> _copyToManagedAppImage(String path) async {
+    final environment = ref.read(startupEnvironmentProvider);
+    final data = environment['XDG_DATA_HOME']?.trim();
+    final home = environment['HOME']?.trim() ?? '';
+    final root = data != null && data.startsWith('/')
+        ? data
+        : home.isEmpty
+        ? ''
+        : '$home/.local/share';
+    if (root.isEmpty) return null;
+    final dirPath =
+        '${root.replaceAll(RegExp(r'/+$'), '')}/denial/appimages';
+    final source = File(path);
+    try {
+      final directory = Directory(dirPath);
+      if (!directory.existsSync()) directory.createSync(recursive: true);
+      final base = _basename(path);
+      final dot = base.lastIndexOf('.');
+      final stem = dot <= 0 ? base : base.substring(0, dot);
+      final extension = dot <= 0 ? '' : base.substring(dot);
+      var candidateName = base;
+      var serial = 2;
+      while (File('$dirPath/$candidateName').existsSync()) {
+        candidateName = '$stem-$serial$extension';
+        serial += 1;
+      }
+      final target = await source.copy('$dirPath/$candidateName');
+      // File.copy does not guarantee the mode; AppImages must be executable
+      // for the host's spawn. Owner-execute is octal 0100.
+      await Process.run('chmod', ['u+x', target.path]);
+      return target.path;
+    } on Object {
+      return null;
     }
   }
 

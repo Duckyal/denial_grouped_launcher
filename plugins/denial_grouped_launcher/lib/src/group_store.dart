@@ -33,6 +33,7 @@ class GroupedLauncherData {
     this.groupOrder = const <String>[],
     this.appOrder = const <String, List<String>>{},
     this.hiddenApps = const <String>{},
+    this.managedFiles = const <String, String>{},
   });
 
   GroupedLauncherData.empty()
@@ -43,7 +44,8 @@ class GroupedLauncherData {
       autoNames = const <String, String>{},
       groupOrder = const <String>[],
       appOrder = const <String, List<String>>{},
-      hiddenApps = const <String>{};
+      hiddenApps = const <String>{},
+      managedFiles = const <String, String>{};
 
   final List<LauncherGroup> groups;
 
@@ -72,6 +74,12 @@ class GroupedLauncherData {
   /// and stay out of every view until restored.
   final Set<String> hiddenApps;
 
+  /// Launcher id -> absolute path of the AppImage copy the plugin manages.
+  /// Adding an AppImage copies it under `$XDG_DATA_HOME/denial/appimages`
+  /// so the tile keeps working when the original file is moved or deleted;
+  /// removing the tile deletes that copy again.
+  final Map<String, String> managedFiles;
+
   GroupedLauncherData copyWith({
     List<LauncherGroup>? groups,
     Map<String, String>? assignments,
@@ -81,6 +89,7 @@ class GroupedLauncherData {
     List<String>? groupOrder,
     Map<String, List<String>>? appOrder,
     Set<String>? hiddenApps,
+    Map<String, String>? managedFiles,
   }) {
     return GroupedLauncherData(
       groups: groups ?? this.groups,
@@ -91,6 +100,7 @@ class GroupedLauncherData {
       groupOrder: groupOrder ?? this.groupOrder,
       appOrder: appOrder ?? this.appOrder,
       hiddenApps: hiddenApps ?? this.hiddenApps,
+      managedFiles: managedFiles ?? this.managedFiles,
     );
   }
 }
@@ -254,6 +264,21 @@ class GroupedLauncherStore {
           }
         }
       }
+      final managedFiles = <String, String>{};
+      final rawManaged = value['managedFiles'];
+      if (rawManaged is Map) {
+        rawManaged.forEach((key, path) {
+          if (key is String &&
+              path is String &&
+              key.isNotEmpty &&
+              key.runes.length <= 512 &&
+              path.startsWith('/') &&
+              path.runes.length <= 4096 &&
+              !RegExp(r'[\x00-\x1f\x7f]').hasMatch(path)) {
+            managedFiles[key] = path;
+          }
+        });
+      }
       return GroupedLauncherData(
         groups: groups,
         assignments: assignments,
@@ -267,6 +292,7 @@ class GroupedLauncherStore {
         groupOrder: groupOrder,
         appOrder: appOrder,
         hiddenApps: hiddenApps,
+        managedFiles: managedFiles,
       );
     } on FormatException {
       return GroupedLauncherData.empty();
@@ -294,6 +320,7 @@ class GroupedLauncherStore {
             'groupOrder': data.groupOrder,
             'appOrder': data.appOrder,
             'hiddenApps': <String>[...data.hiddenApps]..sort(),
+            'managedFiles': data.managedFiles,
           }),
           flush: true,
         );

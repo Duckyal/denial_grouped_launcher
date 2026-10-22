@@ -10,7 +10,7 @@ KDE 风格分组应用启动器，替代 Denial 内置 App Launcher（两者都�
 - 右键分组名：重命名、删除（删除只解除归属，不删应用）
 - 右键 desktop 应用：编辑/恢复启动命令
 - 右键应用磁贴"从启动器移除"（二次点击确认）：用户目录（`~/.local/share/applications`）下的 desktop 文件直接删除（宿主监听该目录，重扫后自动消失）；系统目录条目无权删除，仅本地隐藏并记入 `hiddenApps`。有隐藏项时侧栏出现"已移除"视图，右键其磁贴可恢复。适合清理已卸载软件残留的失效图标
-- 网格空白处右键"添加应用"：输入 AppImage 或任意位置的 `.desktop` 文件路径（支持 `~/` 前缀），在 `~/.local/share/applications` 生成/复制条目，宿主自动重扫出现磁贴。在某个分组内打开时标题显示目标分组，新条目自动归入该分组。AppImage 会自动补 `chmod u+x` 并按文件名推导显示名（去版本号/架构后缀）；生成的条目无图标，可手动编辑该 `.desktop` 文件加 `Icon=`
+- 网格空白处右键"添加应用"：输入 AppImage 或任意位置的 `.desktop` 文件路径（支持 `~/` 前缀），在 `~/.local/share/applications` 生成/复制条目，宿主自动重扫出现磁贴。在某个分组内打开时标题显示目标分组，新条目自动归入该分组。**AppImage 会复制一份**到 `$XDG_DATA_HOME/denial/appimages/`，条目 `Exec=` 指向该副本，因此原文件被移动/删除也不影响启动；右键"从启动器移除"该磁贴时会连同副本一起删除。每次添加都是独立副本，互不影响。AppImage 副本自动补 `chmod u+x`，显示名按文件名推导（去版本号/架构后缀）；生成的条目无图标，可手动编辑该 `.desktop` 文件加 `Icon=`
 - 搜索跨全部分组；当前分组在关闭后记忆
 - 分组数据存于 `$XDG_CONFIG_HOME/denial/grouped-launcher.json`，插件独立维护，不依赖合成器改动
 - Super 键（裸按）默认打开本启动器：插件直接沿用内置启动器的动作 id `denial_launcher.openApplications`。合成器（deniald Rust 侧 `wayland_frontend::input`）把裸 Super 硬编码路由到这个 id，且要求该 id 出现在发布的动作目录里才派发；`shortcuts.json` 无法声明 modifier-only 的 "Super"，所以必须复用同一 id。两个插件都提供 `ShellLauncher`（zeroOrOne）不会同时启用，此 id 不会被占用。对外只暴露这一个"打开应用列表（分组）"入口
