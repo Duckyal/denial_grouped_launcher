@@ -717,9 +717,19 @@ class _GroupedApplicationLauncherState
   // --- Add application (AppImage / desktop entry) ----------------------
 
   void _openAddAppMenu(Offset globalPosition) {
+    // Opened from a group's empty area: the new entry is pinned to that
+    // group (or explicitly ungrouped) once installed.
+    final target = _selectedView == _allViewKey ||
+            _selectedView == _hiddenViewKey
+        ? null
+        : _selectedView;
     setState(() => _addAppError = null);
     _openMenu(
-      _MenuState(mode: _MenuMode.addApp, position: globalPosition),
+      _MenuState(
+        mode: _MenuMode.addApp,
+        position: globalPosition,
+        groupId: target,
+      ),
     );
   }
 
@@ -731,39 +741,56 @@ class _GroupedApplicationLauncherState
       return;
     }
     setState(() => _addAppBusy = true);
-    final (bool ok, String? error) = await _installDesktopEntry(trimmed);
+    final (String? installed, String? error) = await _installDesktopEntry(
+      trimmed,
+    );
     if (!mounted) return;
+    var added = false;
     setState(() {
       _addAppBusy = false;
-      if (ok) {
-        _closeMenuInternal();
-      } else {
+      if (installed == null) {
         _addAppError = error;
+        return;
       }
+      final launcherId = 'desktop:$installed';
+      final assignments = Map<String, String>.of(_data.assignments);
+      final hidden = Set<String>.of(_data.hiddenApps)..remove(launcherId);
+      final targetGroup = _menu?.groupId;
+      if (targetGroup != null) {
+        assignments[launcherId] = targetGroup == _ungroupedViewKey
+            ? ''
+            : targetGroup;
+      }
+      _data = _data.copyWith(assignments: assignments, hiddenApps: hidden);
+      _closeMenuInternal();
+      added = true;
     });
+    if (added) _persist();
   }
 
   /// Installs [rawPath] (an AppImage or a desktop entry elsewhere on disk)
   /// as a `.desktop` file under `$XDG_DATA_HOME/applications`. The host
   /// watches that directory, so the new tile appears without a rescan.
-  Future<(bool, String?)> _installDesktopEntry(String rawPath) async {
+  /// Returns the installed desktop-file id (the host's launcher id is
+  /// `desktop:<id>`), or a localized error message.
+  Future<(String?, String?)> _installDesktopEntry(String rawPath) async {
     var path = rawPath;
     final home = ref.read(startupEnvironmentProvider)['HOME']?.trim() ?? '';
     if (path == '~') {
-      return (false, _lastStrings?.addAppNotFound);
+      return (null, _lastStrings?.addAppNotFound);
     }
     if (path.startsWith('~/') && home.isNotEmpty) {
       path = '$home/${path.substring(2)}';
     }
     if (!path.startsWith('/') || !File(path).existsSync()) {
-      return (false, _lastStrings?.addAppNotFound);
+      return (null, _lastStrings?.addAppNotFound);
     }
     final lower = path.toLowerCase();
     try {
       if (lower.endsWith('.appimage')) {
         final stat = File(path).statSync();
         if (stat.type != FileSystemEntityType.file || stat.size == 0) {
-          return (false, _lastStrings?.addAppNotFound);
+          return (null, _lastStrings?.addAppNotFound);
         }
         // AppImages shipped inside archives often lose the exec bit; the
         // host's spawn would fail on a non-executable file. Owner-execute
@@ -773,7 +800,7 @@ class _GroupedApplicationLauncherState
         }
         final name = _appImageDisplayName(_basename(path));
         final exec = '"${path.replaceAll('"', r'\"')}"';
-        final written = _writeDesktopFile(
+        final installed = _writeDesktopFile(
           '${_desktopSlug(name)}.desktop',
           <String>[
             '[Desktop Entry]',
@@ -785,18 +812,18 @@ class _GroupedApplicationLauncherState
           ].join('\n'),
         );
         return (
-          written,
-          written ? null : _lastStrings?.addAppFailed,
+          installed,
+          installed == null ? _lastStrings?.addAppFailed : null,
         );
       }
       if (lower.endsWith('.desktop')) {
         final contents = File(path).readAsStringSync();
         if (!contents.contains('[Desktop Entry]') ||
             !RegExp(r'^Exec=', multiLine: true).hasMatch(contents)) {
-          return (false, _lastStrings?.addAppInvalidDesktop);
+          return (null, _lastStrings?.addAppInvalidDesktop);
         }
         if (_dirname(path) == _userApplicationsDir()) {
-          return (false, _lastStrings?.addAppAlready);
+          return (null, _lastStrings?.addAppAlready);
         }
         final name =
             RegExp(
@@ -807,15 +834,15 @@ class _GroupedApplicationLauncherState
         final fileName = name.isEmpty
             ? _basename(path)
             : '${_desktopSlug(name)}.desktop';
-        final written = _writeDesktopFile(fileName, contents);
+        final installed = _writeDesktopFile(fileName, contents);
         return (
-          written,
-          written ? null : _lastStrings?.addAppFailed,
+          installed,
+          installed == null ? _lastStrings?.addAppFailed : null,
         );
       }
-      return (false, _lastStrings?.addAppType);
+      return (null, _lastStrings?.addAppType);
     } on Object catch (error) {
-      return (false, '${_lastStrings?.addAppFailed}: $error');
+      return (null, '${_lastStrings?.addAppFailed}: $error');
     }
   }
 
@@ -831,20 +858,29 @@ class _GroupedApplicationLauncherState
     return root.isEmpty ? '' : '${root.replaceAll(RegExp(r'/+$'), '')}/applications';
   }
 
-  bool _writeDesktopFile(String fileName, String contents) {
+  /// Writes [contents] to a non-colliding file under the user applications
+  /// directory and returns its desktop-file id (the basename), or null on
+  /// failure. The host derives the launcher id as `desktop:<id>`.
+  String? _writeDesktopFile(String fileName, String contents) {
     final dirPath = _userApplicationsDir();
-    if (dirPath.isEmpty) return false;
+    if (dirPath.isEmpty) return null;
     final directory = Directory(dirPath);
     if (!directory.existsSync()) directory.createSync(recursive: true);
-    final stem = fileName.substring(0, fileName.length - '.desktop'.length);
-    var candidate = File('$dirPath/$fileName');
+    final dot = fileName.lastIndexOf('.');
+    final stem = dot <= 0 ? fileName : fileName.substring(0, dot);
+    final extension = dot <= 0 ? '.desktop' : fileName.substring(dot);
+    var candidateName = fileName;
     var serial = 2;
-    while (candidate.existsSync()) {
-      candidate = File('$dirPath/$stem-$serial.desktop');
+    while (File('$dirPath/$candidateName').existsSync()) {
+      candidateName = '$stem-$serial$extension';
       serial += 1;
     }
-    candidate.writeAsStringSync(contents);
-    return true;
+    try {
+      File('$dirPath/$candidateName').writeAsStringSync(contents);
+    } on Object {
+      return null;
+    }
+    return candidateName;
   }
 
   /// "Foo-Bar-1.2.3-x86_64.AppImage" -> "Foo Bar"; trailing version, arch
@@ -993,6 +1029,11 @@ class _GroupedApplicationLauncherState
     if (menu.mode == _MenuMode.group) return 2 * 34 + 12;
     if (menu.mode == _MenuMode.autoGroup) return 46 + 2 * 34 + 12;
     if (menu.mode == _MenuMode.power) return 46 + 7 * 34 + 3 * 11 + 24;
+    if (menu.mode == _MenuMode.addApp) {
+      // Header + path input + save + cancel, plus a validation line when the
+      // previous attempt failed.
+      return 46 + 52 + 2 * 34 + 12 + (_addAppError == null ? 0 : 24);
+    }
     if (menu.mode != _MenuMode.tile) return 140;
     if (_selectedView == _hiddenViewKey) return 46 + 34 + 8;
     final desktopApp = widget.desktopAppsById[menu.appId];
@@ -1156,7 +1197,6 @@ class _GroupedApplicationLauncherState
                                         position: globalPosition,
                                       ),
                                     ),
-                                    onAddApp: _openAddAppMenu,
                                     onGroupContextMenu: (groupId, position) =>
                                         _openMenu(
                                           _MenuState(
@@ -1263,6 +1303,11 @@ class _GroupedApplicationLauncherState
                                               onReorder: _reorderApp,
                                               onTap: _launch,
                                               onSecondaryTap: _openTileMenu,
+                                              onBackgroundContextMenu:
+                                                  _selectedView ==
+                                                  _hiddenViewKey
+                                                  ? null
+                                                  : _openAddAppMenu,
                                             ),
                                           ),
                                         ),
@@ -1705,8 +1750,17 @@ class _GroupedApplicationLauncherState
       return <_MenuItemData>[];
     }
     final error = _addAppError;
+    // When opened from a group's empty area the header names the destination,
+    // so the user sees where the new tile will land.
+    final targetGroup = _menu?.groupId;
+    final header = switch (targetGroup) {
+      null => strings.addApp,
+      _ungroupedViewKey => '${strings.addApp} · ${strings.ungrouped}',
+      _ =>
+        '${strings.addApp} · ${targetGroup.startsWith(_autoGroupPrefix) ? _autoGroupLabel(targetGroup, strings.zh) : (_data.groups.any((g) => g.id == targetGroup) ? _data.groups.firstWhere((g) => g.id == targetGroup).name : strings.addApp)}',
+    };
     return <_MenuItemData>[
-      _MenuItemData.header(strings.addApp),
+      _MenuItemData.header(header),
       _MenuItemData.input(
         controller: controller,
         focusNode: focus,

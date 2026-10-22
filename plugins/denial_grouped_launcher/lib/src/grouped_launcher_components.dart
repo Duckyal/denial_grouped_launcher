@@ -92,7 +92,6 @@ class _Sidebar extends StatelessWidget {
     required this.hiddenCount,
     required this.onSelect,
     required this.onNewGroup,
-    required this.onAddApp,
     required this.onGroupContextMenu,
     required this.onRenameGroup,
     required this.onAutoGroupContextMenu,
@@ -114,7 +113,6 @@ class _Sidebar extends StatelessWidget {
   final int hiddenCount;
   final ValueChanged<String> onSelect;
   final ValueChanged<Offset> onNewGroup;
-  final ValueChanged<Offset> onAddApp;
   final void Function(String groupId, Offset globalPosition) onGroupContextMenu;
   final void Function(String groupId, Offset globalPosition) onRenameGroup;
   final void Function(String groupId, Offset globalPosition)
@@ -227,17 +225,6 @@ class _Sidebar extends StatelessWidget {
               selected: false,
               onTap: () {},
               onTapPositioned: onNewGroup,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: _SideEntry(
-              icon: Icons.add_circle_outline_rounded,
-              label: strings.addApp,
-              count: null,
-              selected: false,
-              onTap: () {},
-              onTapPositioned: onAddApp,
             ),
           ),
         ],
@@ -855,6 +842,7 @@ class _AppGrid extends StatelessWidget {
     required this.selectedIndex,
     required this.onTap,
     required this.onSecondaryTap,
+    this.onBackgroundContextMenu,
     this.draggable = false,
     this.onReorder,
   });
@@ -868,14 +856,19 @@ class _AppGrid extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<LauncherApplication> onTap;
   final void Function(String appId, Offset globalPosition) onSecondaryTap;
+
+  /// Right-click on the grid's empty area (below/around the tiles). Tiles
+  /// keep their own handler; the inner gesture wins for presses on a tile.
+  final ValueChanged<Offset>? onBackgroundContextMenu;
   final bool draggable;
   final void Function(String draggedAppId, String targetAppId, bool after)?
   onReorder;
 
   @override
   Widget build(BuildContext context) {
+    final Widget content;
     if (loading) {
-      return Center(
+      content = Center(
         child: Text(
           loadingLabel,
           style: context.shellTheme.text.base.copyWith(
@@ -883,9 +876,8 @@ class _AppGrid extends StatelessWidget {
           ),
         ),
       );
-    }
-    if (apps.isEmpty) {
-      return Center(
+    } else if (apps.isEmpty) {
+      content = Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -906,18 +898,26 @@ class _AppGrid extends StatelessWidget {
           ],
         ),
       );
+    } else {
+      content = GridView.builder(
+        controller: controller,
+        padding: const EdgeInsets.all(2),
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: _GroupedApplicationLauncherState._tileExtent,
+          mainAxisExtent: _GroupedApplicationLauncherState._tileExtent,
+          crossAxisSpacing: _GroupedApplicationLauncherState._tileSpacing,
+          mainAxisSpacing: _GroupedApplicationLauncherState._tileSpacing,
+        ),
+        itemCount: apps.length,
+        itemBuilder: (context, index) => _tile(context, index),
+      );
     }
-    return GridView.builder(
-      controller: controller,
-      padding: const EdgeInsets.all(2),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: _GroupedApplicationLauncherState._tileExtent,
-        mainAxisExtent: _GroupedApplicationLauncherState._tileExtent,
-        crossAxisSpacing: _GroupedApplicationLauncherState._tileSpacing,
-        mainAxisSpacing: _GroupedApplicationLauncherState._tileSpacing,
-      ),
-      itemCount: apps.length,
-      itemBuilder: (context, index) => _tile(context, index),
+    final onBackground = onBackgroundContextMenu;
+    if (onBackground == null) return content;
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onSecondaryTapUp: (event) => onBackground(event.globalPosition),
+      child: content,
     );
   }
 
