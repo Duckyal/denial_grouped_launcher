@@ -478,6 +478,14 @@ class _GroupedApplicationLauncherState
     _persist();
   }
 
+  /// A tile released over a sidebar row. Same semantics as the context
+  /// menu's "move to group"; a tile dropped on its own current group is a
+  /// no-op so the assignment (and any appOrder) stays untouched.
+  void _dropAppIntoGroup(String appId, String? groupId) {
+    if (_effectiveGroup(appId) == groupId) return;
+    _moveApp(appId, groupId);
+  }
+
   void _createGroup(String rawName) {
     final pendingAppId = _menu?.appId;
     final name = rawName.trim();
@@ -1459,6 +1467,8 @@ class _GroupedApplicationLauncherState
                                             newIndex,
                                             counts,
                                           ),
+                                      onDropApp: (appId, groupId) =>
+                                          _dropAppIntoGroup(appId, groupId),
                                     ),
                                     const SizedBox(width: 12),
                                     Expanded(
@@ -1528,10 +1538,15 @@ class _GroupedApplicationLauncherState
                                                 selectedIndex: _selectedIndex,
                                                 draggable:
                                                     _selectedView !=
-                                                        _allViewKey &&
-                                                    _selectedView !=
-                                                        _hiddenViewKey,
-                                                onReorder: _reorderApp,
+                                                    _hiddenViewKey,
+                                                // The "All" view reorders
+                                                // nothing; its tiles are only
+                                                // draggable so they can land
+                                                // on a sidebar group.
+                                                onReorder: _selectedView ==
+                                                        _allViewKey
+                                                    ? null
+                                                    : _reorderApp,
                                                 onTap: _launch,
                                                 onSecondaryTap: _openTileMenu,
                                                 onBackgroundContextMenu:

@@ -102,6 +102,7 @@ class _Sidebar extends StatelessWidget {
     required this.onAutoGroupContextMenu,
     required this.onAutoGroupRename,
     required this.onReorderGroup,
+    required this.onDropApp,
   });
 
   final double width;
@@ -124,6 +125,12 @@ class _Sidebar extends StatelessWidget {
   onAutoGroupContextMenu;
   final void Function(String groupId, Offset globalPosition) onAutoGroupRename;
   final void Function(int oldIndex, int newIndex) onReorderGroup;
+
+  /// Move an app into the given group (null = ungrouped) after a tile drag
+  /// lands on a sidebar row. "All", "Removed" and "new group" rows take no
+  /// drops; auto-category rows pass their 'auto:…' id like the context menu
+  /// does.
+  final void Function(String appId, String? groupId) onDropApp;
 
   @override
   Widget build(BuildContext context) {
@@ -200,6 +207,8 @@ class _Sidebar extends StatelessWidget {
                             onEditTap: (position) => allGroups[i].isAuto
                                 ? onAutoGroupRename(allGroups[i].id, position)
                                 : onRenameGroup(allGroups[i].id, position),
+                            onDropApp: (appId) =>
+                                onDropApp(appId, allGroups[i].id),
                           ),
                       ],
                     ),
@@ -210,6 +219,7 @@ class _Sidebar extends StatelessWidget {
                       count: visibleAllCount - groupedTotal,
                       selected: selectedView == _ungroupedViewKey,
                       onTap: () => onSelect(_ungroupedViewKey),
+                      onDropApp: (appId) => onDropApp(appId, null),
                     ),
                   if (hiddenCount > 0)
                     _SideEntry(
@@ -282,6 +292,7 @@ class _SideEntry extends StatefulWidget {
     this.onEditTap,
     this.dragHandle,
     this.reorderIndex,
+    this.onDropApp,
   });
 
   final IconData icon;
@@ -295,20 +306,25 @@ class _SideEntry extends StatefulWidget {
   final Widget? dragHandle;
   final int? reorderIndex;
 
+  /// Drop target for app tiles dragged out of the grid. Receives the app id
+  /// once a `_AppDrag` is released on this row; null disables the target.
+  final ValueChanged<String>? onDropApp;
+
   @override
   State<_SideEntry> createState() => _SideEntryState();
 }
 
 class _SideEntryState extends State<_SideEntry> {
   bool _hovered = false;
+  bool _dropActive = false;
 
   @override
   Widget build(BuildContext context) {
     final scope = _LauncherScope.of(context);
     final theme = ShellTheme.of(context);
     final accent = theme.accentPalette;
-    final highlighted = widget.selected || _hovered;
-    return Semantics(
+    final highlighted = widget.selected || _hovered || _dropActive;
+    final row = Semantics(
       button: true,
       selected: widget.selected,
       label: widget.label,
@@ -416,6 +432,21 @@ class _SideEntryState extends State<_SideEntry> {
           ),
         ),
       ),
+    );
+    final drop = widget.onDropApp;
+    if (drop == null) return row;
+    return DragTarget<_AppDrag>(
+      onMove: (_) {
+        if (!_dropActive) setState(() => _dropActive = true);
+      },
+      onLeave: (_) {
+        if (_dropActive) setState(() => _dropActive = false);
+      },
+      onAcceptWithDetails: (details) {
+        if (_dropActive) setState(() => _dropActive = false);
+        drop(details.data.appId);
+      },
+      builder: (context, candidates, _) => row,
     );
   }
 }
@@ -939,11 +970,29 @@ class _AppGrid extends StatelessWidget {
       onTap: () => onTap(app),
       onSecondaryTap: (position) => onSecondaryTap(app.id, position),
     );
-    if (!draggable || onReorder == null) return tile;
+    if (!draggable) return tile;
+    final onReorder = this.onReorder;
+    if (onReorder == null) {
+      // Draggable without a reorder slot: dragging is only meaningful for
+      // the sidebar drop targets, so no insertion indicator here.
+      return Draggable<_AppDrag>(
+        data: _AppDrag(app.id),
+        feedback: Material(
+          color: Colors.transparent,
+          child: SizedBox(
+            width: _GroupedApplicationLauncherState._tileExtent,
+            height: _GroupedApplicationLauncherState._tileExtent,
+            child: Opacity(opacity: 0.9, child: tile),
+          ),
+        ),
+        childWhenDragging: Opacity(opacity: 0.3, child: tile),
+        child: tile,
+      );
+    }
     return _DropSlotTile(
       appId: app.id,
       extent: _GroupedApplicationLauncherState._tileExtent,
-      onReorder: onReorder!,
+      onReorder: onReorder,
       tile: tile,
     );
   }
