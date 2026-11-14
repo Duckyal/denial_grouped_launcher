@@ -11,8 +11,8 @@ KDE 风格分组应用启动器，替代 Denial 内置 App Launcher（两者都�
 - 右键分组名：重命名、删除（删除只解除归属，不删应用）
 - 右键 desktop 应用：编辑/恢复启动命令
 - 右键应用磁贴"从启动器移除"（二次点击确认）：用户目录（`~/.local/share/applications`）下的 desktop 文件直接删除（宿主监听该目录，重扫后自动消失）；系统目录条目无权删除，仅本地隐藏并记入 `hiddenApps`。有隐藏项时侧栏出现"已移除"视图，右键其磁贴可恢复。适合清理已卸载软件残留的失效图标
-- 网格空白处右键"添加应用"：输入 AppImage、`.desktop` 或 `.exe`（wine）文件路径（支持 `~/` 前缀），在 `~/.local/share/applications` 生成/复制条目，宿主自动重扫出现磁贴。在某个分组内打开时标题显示目标分组，新条目自动归入该分组。**AppImage 会复制一份**到 `$XDG_DATA_HOME/denial/appimages/`，条目 `Exec=` 指向该副本，因此原文件被移动/删除也不影响启动；右键"从启动器移除"该磁贴时会连同副本一起删除。每次添加都是独立副本，互不影响。AppImage 副本自动补 `chmod u+x`，显示名按文件名推导（去版本号/架构后缀）；生成的条目无图标，可手动编辑该 `.desktop` 文件加 `Icon=`
-- **`.exe` 快捷方式（wine）**：校验 PE 头（MZ）并在 PATH/常见目录里找 wine，在 `$XDG_DATA_HOME/denial/launchers/` 生成启动脚本（`cd` 到 exe 所在目录后 `exec wine <exe>`——宿主 spawn 不支持 desktop 条目的 `Path=`，wine 应用又普遍依赖工作目录），`.desktop` 条目指向该脚本。exe 本体**不复制**（单文件拷贝会缺同目录的 DLL，整目录拷贝太重），移除磁贴只删快捷方式，不动原文件；找不到 wine 时给出提示
+- 网格空白处右键"添加应用"：输入 AppImage、`.desktop`、`.exe`（wine）或 `.sh` 文件路径（支持 `~/` 前缀），在 `~/.local/share/applications` 生成/复制条目，宿主自动重扫出现磁贴。在某个分组内打开时标题显示目标分组，新条目自动归入该分组。**AppImage 会复制一份**到 `$XDG_DATA_HOME/denial/appimages/`，条目 `Exec=` 指向该副本，因此原文件被移动/删除也不影响启动；右键"从启动器移除"该磁贴时会连同副本一起删除。每次添加都是独立副本，互不影响。AppImage 副本自动补 `chmod u+x`，显示名按文件名推导（去版本号/架构后缀）；生成的条目无图标，可手动编辑该 `.desktop` 文件加 `Icon=`
+- **`.exe` / `.sh` 快捷方式**：两者共用一套"原位快捷方式"语义——原文件**不复制、不改动**，在 `$XDG_DATA_HOME/denial/launchers/` 生成 wrapper 脚本（`cd` 到原文件所在目录后 `exec …`，因为宿主 spawn 不支持 desktop 条目的 `Path=`，wine 游戏和 shell 脚本又普遍依赖工作目录/相对路径），`.desktop` 条目指向该 wrapper；移除磁贴时条目和 wrapper 一起删，原文件不受影响。`.exe` 校验 PE 头（MZ）并在 PATH/常见目录里找 wine，找不到时给出提示；`.sh` 校验是文本脚本（拒绝二进制伪装）并按脚本自己的 shebang 选择解释器（`#!/usr/bin/env python3`、`#!/bin/bash -e` 都原样生效），无 shebang 回退 `/bin/sh`
 - 搜索跨全部分组；当前分组在关闭后记忆
 - 分组数据存于 `$XDG_CONFIG_HOME/denial/grouped-launcher.json`，插件独立维护，不依赖合成器改动
 - Super 键（裸按）默认打开本启动器：插件直接沿用内置启动器的动作 id `denial_launcher.openApplications`。合成器（deniald Rust 侧 `wayland_frontend::input`）把裸 Super 硬编码路由到这个 id，且要求该 id 出现在发布的动作目录里才派发；`shortcuts.json` 无法声明 modifier-only 的 "Super"，所以必须复用同一 id。两个插件都提供 `ShellLauncher`（zeroOrOne）不会同时启用，此 id 不会被占用。对外只暴露这一个"打开应用列表（分组）"入口

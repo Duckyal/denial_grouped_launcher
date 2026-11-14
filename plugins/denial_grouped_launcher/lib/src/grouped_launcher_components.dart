@@ -58,8 +58,8 @@ class _Strings {
   String get hiddenHint => zh ? '此分组暂无应用' : 'No removed apps';
   String get addApp => zh ? '添加应用' : 'Add application';
   String get addAppHint => zh
-      ? 'AppImage / .desktop / .exe（wine）路径，回车添加'
-      : 'Path to an AppImage, .desktop or .exe (wine), Enter to add';
+      ? 'AppImage / .desktop / .exe（wine）/ .sh 路径，回车添加'
+      : 'Path to an AppImage, .desktop, .exe (wine) or .sh file, Enter to add';
   String get addAppEmpty => zh ? '请输入文件路径' : 'Enter a file path';
   String get addAppNotFound => zh ? '文件不存在' : 'File not found';
   String get addAppInvalidDesktop => zh
@@ -67,13 +67,16 @@ class _Strings {
       : 'Invalid desktop entry (no [Desktop Entry] or Exec)';
   String get addAppInvalidExe =>
       zh ? '无效的 exe 文件（非 PE 程序）' : 'Invalid exe file (not a PE binary)';
+  String get addAppInvalidScript => zh
+      ? '无效的脚本（看起来是二进制文件）'
+      : 'Invalid script (looks like a binary file)';
   String get addAppNoWine =>
       zh ? '未找到 wine，无法添加 exe 应用' : 'wine not found; cannot add this exe';
   String get addAppAlready =>
       zh ? '该文件已在应用目录中' : 'Already in the applications directory';
   String get addAppType => zh
-      ? '仅支持 .AppImage、.desktop 或 .exe 文件'
-      : 'Only .AppImage, .desktop and .exe files are supported';
+      ? '仅支持 .AppImage、.desktop、.exe 或 .sh 文件'
+      : 'Only .AppImage, .desktop, .exe and .sh files are supported';
   String get addAppFailed => zh ? '添加失败' : 'Could not add';
 
   /// [deletesFile] distinguishes a real desktop-entry delete (user-owned
