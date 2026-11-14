@@ -72,6 +72,9 @@ class _Strings {
       : 'Invalid script (looks like a binary file)';
   String get addAppNoWine =>
       zh ? '未找到 wine，无法添加 exe 应用' : 'wine not found; cannot add this exe';
+  String get addAppNoTerminal => zh
+      ? '未找到终端程序，无法添加 sh 应用'
+      : 'No terminal emulator found; cannot add this script';
   String get addAppAlready =>
       zh ? '该文件已在应用目录中' : 'Already in the applications directory';
   String get addAppType => zh

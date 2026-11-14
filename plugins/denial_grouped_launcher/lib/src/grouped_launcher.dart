@@ -928,14 +928,39 @@ class _GroupedApplicationLauncherState
         }
         final name = _executableDisplayName(_basename(path));
         final slug = _desktopSlug(name);
+        // The host's repository drops any entry with Terminal=true, so the
+        // desktop file cannot ask for a terminal — the wrapper launches one
+        // itself. Without a terminal emulator this would be a tile that
+        // silently swallows the script's output, so adding fails visibly.
+        final terminal = _findTerminalLauncher();
+        if (terminal == null) {
+          return (null, null, _lastStrings?.addAppNoTerminal);
+        }
+        final (terminalTokens, holdsOpen) = terminal;
         // Honour the script's own shebang (bash, zsh, options…) and fall
         // back to a plain POSIX shell when it declares none.
         final shebang = _scriptShebang(path) ?? [_posixShell()];
+        // Inside the terminal: $0 is the interpreter, $@ the script and
+        // its args. Emulators without --hold get a press-Enter pause so a
+        // fast script's output is still readable; exec keeps the real
+        // exit status visible to kitty & friends.
+        final inner = holdsOpen
+            ? r'exec "$0" "$@"'
+            : r'"$0" "$@"; status=$?; '
+                  r'printf "\n[exited %s — press Enter]\n" "$status"; '
+                  r'read _ || sleep 10; exit "$status"';
         final wrapper = _writeLauncherWrapper(
           slug: slug,
-          command: [...shebang, path],
+          command: <String>[
+            ...terminalTokens,
+            'sh',
+            '-c',
+            inner,
+            ...shebang,
+            path,
+          ],
           workingDirectory: _dirname(path),
-          comment: 'shell-script shortcut',
+          comment: 'terminal shortcut',
         );
         if (wrapper == null) {
           return (null, null, _lastStrings?.addAppFailed);
@@ -1028,11 +1053,11 @@ class _GroupedApplicationLauncherState
     }
   }
 
-  /// Locates a wine binary: PATH first, then the usual distro locations.
-  String? _findWine() {
+  /// Returns the first existing executable among [names], searching `PATH`
+  /// (from the shell's startup environment) and then the usual bin dirs.
+  String? _findBinary(List<String> names) {
     final environment = ref.read(startupEnvironmentProvider);
     final path = environment['PATH']?.trim() ?? '';
-    final names = <String>['wine', 'wine64', 'wine-stable'];
     for (final dir in path.split(':')) {
       if (!dir.startsWith('/')) continue;
       for (final name in names) {
@@ -1041,10 +1066,49 @@ class _GroupedApplicationLauncherState
       }
     }
     for (final name in names) {
-      for (final dir in <String>['/usr/bin', '/usr/local/bin']) {
+      for (final dir in const <String>['/usr/bin', '/usr/local/bin']) {
         final candidate = File('$dir/$name');
         if (candidate.existsSync()) return candidate.path;
       }
+    }
+    return null;
+  }
+
+  /// Locates a wine binary.
+  String? _findWine() =>
+      _findBinary(const <String>['wine', 'wine64', 'wine-stable']);
+
+  /// A terminal emulator's argv prefix plus whether it keeps the window
+  /// open itself (`--hold`). Emulators without a hold option get a
+  /// "press Enter" pause from the caller instead of vanishing the moment
+  /// the script exits. `TERMINAL` (if set and present) wins, so a user's
+  /// preference is respected.
+  (List<String>, bool)? _findTerminalLauncher() {
+    final environment = ref.read(startupEnvironmentProvider);
+    final preferred = environment['TERMINAL']?.trim() ?? '';
+    if (preferred.isNotEmpty) {
+      final tokens = preferred
+          .split(RegExp(r'\s+'))
+          .where((token) => token.isNotEmpty)
+          .toList(growable: false);
+      if (tokens.isNotEmpty && _findBinary(<String>[tokens.first]) != null) {
+        return (tokens, false);
+      }
+    }
+    for (final entry in const <(List<String>, bool)>[
+      (<String>['kitty', '--hold'], true),
+      (<String>['foot', '--hold', '--'], true),
+      (<String>['wezterm', 'start', '--hold', '--'], true),
+      (<String>['alacritty', '-e'], false),
+      (<String>['gnome-terminal', '--'], false),
+      (<String>['konsole', '-e'], false),
+      (<String>['xfce4-terminal', '-e'], false),
+      (<String>['qterminal', '-e'], false),
+      (<String>['lxterminal', '-e'], false),
+      (<String>['st', '-e'], false),
+      (<String>['xterm', '-e'], false),
+    ]) {
+      if (_findBinary(<String>[entry.$1.first]) != null) return entry;
     }
     return null;
   }
